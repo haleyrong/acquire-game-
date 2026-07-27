@@ -1,8 +1,9 @@
 'use client';
 
 import { useGameStore } from '@/store/gameStore';
+import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 
-export function HotelChoiceModal() {
+export function HotelChoiceModal({ localPlayerId, isMyTurn }: { localPlayerId?: string; isMyTurn?: boolean }) {
   const gameState = useGameStore((s) => s.gameState);
   const confirmFoundHotel = useGameStore((s) => s.confirmFoundHotel);
 
@@ -16,7 +17,7 @@ export function HotelChoiceModal() {
     .map((id) => gameState.tiles[id])
     .filter(Boolean);
 
-  const totalSize = 1 + adjacentTiles.length; // 放置的板块 + 相连独立板块
+  const totalSize = 1 + adjacentTiles.length;
 
   // 按 minFoundingSize 筛选可选酒店
   const hotelOptions = Object.values(gameState.hotels)

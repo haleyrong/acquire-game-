@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 
-export function MergerModal() {
+export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
   const gameState = useGameStore((s) => s.gameState);
   const confirmMergerDecision = useGameStore((s) => s.confirmMergerDecision);
   const [sellQty, setSellQty] = useState(0);
@@ -24,6 +24,8 @@ export function MergerModal() {
   if (!survivor) return null;
 
   const currentDecisionPid = merger.decisionQueue[merger.currentDecisionPlayerIndex];
+  // 如果没有传 localPlayerId（热座模式），默认所有人都可以操作
+  const isMe = localPlayerId ? localPlayerId === currentDecisionPid : true;
   const decisionPlayer = currentDecisionPid ? gameState.players[currentDecisionPid] : null;
   const decisionHolding = decisionPlayer?.stocks.find((s) => s.hotelId === merger.acquiredHotelId);
   const decisionQuantity = decisionHolding?.quantity || 0;
@@ -86,10 +88,23 @@ export function MergerModal() {
           <p className="text-center text-sm text-slate-500 mb-4">所有股东已决策完毕，并购自动完成</p>
         )}
 
-        {currentDecisionPid && decisionPlayer && (
+        {/* 别人在决策，自己等待 */}
+        {currentDecisionPid && decisionPlayer && !isMe && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-center">
+            <p className="text-sm text-slate-500">
+              ⏳ 等待 <strong className="text-slate-700">{decisionPlayer.name}</strong> 做出并购决策...
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              持有 {decisionQuantity} 张 {merger.acquiredHotelName} 股票
+            </p>
+          </div>
+        )}
+
+        {/* 自己的决策 */}
+        {currentDecisionPid && decisionPlayer && isMe && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
             <h3 className="text-sm font-semibold text-blue-800 mb-2">
-              🎯 {decisionPlayer.name} 的决策
+              🎯 你的决策
             </h3>
             <p className="text-xs text-blue-600 mb-3">
               持有 {decisionQuantity} 张 {merger.acquiredHotelName} 股票

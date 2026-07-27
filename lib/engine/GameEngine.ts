@@ -631,21 +631,22 @@ export function makeMergerDecision(
         player.stocks = player.stocks.filter((s) => s.hotelId !== merger.acquiredHotelId);
       }
 
-      // 发新股
-      if (survivor.remainingStocks >= newStockCount) {
-        survivor.remainingStocks -= newStockCount;
-        const existingSurvivor = player.stocks.find((s) => s.hotelId === survivor.id);
-        if (existingSurvivor) {
-          existingSurvivor.quantity += newStockCount;
-        } else {
-          player.stocks.push({ hotelId: survivor.id, quantity: newStockCount });
-        }
+      // 发新股——检查库存
+      if (survivor.remainingStocks <= 0) {
+        return { success: false, error: `${survivor.name} 股票已售罄，无法置换` };
+      }
+      const actualNew = Math.min(newStockCount, survivor.remainingStocks);
+      survivor.remainingStocks -= actualNew;
+      const existingSurvivor = player.stocks.find((s) => s.hotelId === survivor.id);
+      if (existingSurvivor) {
+        existingSurvivor.quantity += actualNew;
       } else {
-        // 股票不够，给现金补偿
-        const cashCompensation = survivor.stockPrice * newStockCount;
-        player.cash += cashCompensation;
+        player.stocks.push({ hotelId: survivor.id, quantity: actualNew });
+      }
+
+      if (actualNew < newStockCount) {
         addLog(state, playerId, 'WARNING',
-          `${survivor.name} 股票不足，补偿现金 $${cashCompensation.toLocaleString()}`);
+          `${survivor.name} 股票仅剩 ${actualNew} 股，已全部置换`);
       }
 
       addLog(state, playerId, 'TRADE',
@@ -967,14 +968,40 @@ export function checkEndCondition(state: GameState): boolean {
   return false;
 }
 
-/** 终局结算 */
+/** 终局结算：先发终局分红，再兑现股票 */
 export function calculateFinalScores(state: GameState) {
   const activeHotels = Object.values(state.hotels).filter((h) => h.isActive);
 
-  // 终局分红（和并购分红规则相同）
+  // 终局分红：每间激活酒店的最大股东和第二大股东获得分红
   for (const hotel of activeHotels) {
     if (hotel.size < 2) continue;
-    // TODO Phase 3: 实现终局分红
+    const price = hotel.stockPrice;
+
+    // 找出该酒店的所有股东
+    const shareholders = state.playerOrder
+      .map((pid) => {
+        const p = state.players[pid];
+        const h = p.stocks.find((s) => s.hotelId === hotel.id);
+        return { player: p, quantity: h?.quantity || 0 };
+      })
+      .filter((s) => s.quantity > 0)
+      .sort((a, b) => b.quantity - a.quantity);
+
+    const majority = shareholders[0];
+    const minority = shareholders[1];
+
+    if (majority) {
+      const bonus = price * state.config.majorityBonusMultiplier;
+      majority.player.cash += bonus;
+      addLog(state, majority.player.id, 'FINAL_BONUS',
+        `${majority.player.name} 作为 ${hotel.name} 最大股东(${majority.quantity}股)获得终局分红 $${bonus.toLocaleString()}`);
+    }
+    if (minority) {
+      const bonus = price * state.config.minorityBonusMultiplier;
+      minority.player.cash += bonus;
+      addLog(state, minority.player.id, 'FINAL_BONUS',
+        `${minority.player.name} 作为 ${hotel.name} 第二大股东(${minority.quantity}股)获得终局分红 $${bonus.toLocaleString()}`);
+    }
   }
 
   // 所有股票按市价兑现，加现金
@@ -986,7 +1013,6 @@ export function calculateFinalScores(state: GameState) {
       if (hotel && hotel.isActive) {
         stockValue += hotel.stockPrice * holding.quantity;
       }
-      // 已下市酒店的股票价值为0（玩家选择hold的）
     }
     return {
       playerId,

@@ -180,7 +180,10 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
         </div>
         <a href="/lobby" className="text-sm text-slate-500 hover:text-red-500">退出</a>
       </header>
-      <HotelChoiceModal /><AcquirerChoiceModal /><MergerModal />
+      {/* 只有自己回合才显示交互弹窗，其他人看到等待提示 */}
+      {myTurn ? <HotelChoiceModal /> : gs.phase === 'choose_hotel' && <WaitOverlay msg="等待对手选择酒店..." />}
+      {myTurn ? <AcquirerChoiceModal /> : gs.phase === 'choose_acquirer' && <WaitOverlay msg="等待对手选择并购方..." />}
+      <MergerModal localPlayerId={pid} />
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-[1400px] mx-auto w-full">
         <div className="flex-1 flex flex-col gap-4">
           {gs.status==='finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} localPlayerId={pid} />}
@@ -193,6 +196,16 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
         </div>
         <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /><GameLog /></div>
       </main>
+    </div>
+  );
+}
+
+function WaitOverlay({ msg }: { msg: string }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 pointer-events-none">
+      <div className="bg-white/90 backdrop-blur rounded-2xl px-6 py-3 shadow-lg text-sm text-slate-500 animate-pulse">
+        ⏳ {msg}
+      </div>
     </div>
   );
 }
