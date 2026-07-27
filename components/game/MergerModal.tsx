@@ -8,6 +8,7 @@ export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
   const confirmMergerDecision = useGameStore((s) => s.confirmMergerDecision);
   const [sellQty, setSellQty] = useState(0);
   const [tradeQty, setTradeQty] = useState(0);
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!gameState || gameState.phase !== 'merger_decisions') return null;
 
@@ -37,9 +38,23 @@ export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
     setTradeQty(0);
   };
 
+  if (collapsed) {
+    return (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+        <button onClick={() => setCollapsed(false)}
+          className="bg-red-500 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium hover:bg-red-600 animate-pulse">
+          🤝 并购进行中
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl p-6 shadow-xl border border-slate-200 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl p-6 shadow-xl border border-slate-200 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+        <button onClick={() => setCollapsed(true)}
+          className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 text-xs"
+          title="缩小">−</button>
         {/* 标题 */}
         <div className="text-center mb-4">
           <p className="text-4xl mb-2">🤝</p>

@@ -6,7 +6,7 @@ import { useGameStore } from '@/store/gameStore';
 import { supabase } from '@/lib/supabase/client';
 import * as Engine from '@/lib/engine/GameEngine';
 import {
-  GameBoard, PlayerHand, PlayerList, GameLog, HotelPanel,
+  GameBoard, PlayerHand, PlayerList, HotelPanel,
   StockMarket, ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
   MergerModal, DevTilePicker,
 } from '@/components/game';
@@ -194,7 +194,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>
-        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /><GameLog /></div>
+        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /></div>
       </main>
     </div>
   );

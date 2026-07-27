@@ -499,6 +499,53 @@ export function chooseAcquirer(state: GameState, chosenSurvivorId: string): bool
   return true;
 }
 
+/** 计算分红（处理平级：同股数的玩家平分奖金） */
+function resolveBonuses(
+  state: GameState, hotelName: string, price: number,
+  shareholders: { player: Player; quantity: number }[]
+) {
+  const result = {
+    majority: null as { player: Player; quantity: number } | null,
+    minority: null as { player: Player; quantity: number } | null,
+    majorityBonus: 0,
+    minorityBonus: 0,
+  };
+
+  if (shareholders.length === 0) return result;
+
+  const topQty = shareholders[0].quantity;
+  const majorityGroup = shareholders.filter(s => s.quantity === topQty);
+  const totalMajorityBonus = price * state.config.majorityBonusMultiplier;
+  const perMajority = Math.floor(totalMajorityBonus / majorityGroup.length);
+
+  for (const s of majorityGroup) {
+    s.player.cash += perMajority;
+    addLog(state, s.player.id, 'BONUS',
+      `${s.player.name} 作为 ${hotelName} 最大股东(${s.quantity}股)获得分红 $${perMajority.toLocaleString()}${majorityGroup.length > 1 ? '（平分）' : ''}`);
+  }
+  result.majority = majorityGroup[0];
+  result.majorityBonus = perMajority;
+
+  // 第二大股东（排除第一大股东组）
+  const remaining = shareholders.filter(s => s.quantity < topQty);
+  if (remaining.length > 0) {
+    const secondQty = remaining[0].quantity;
+    const minorityGroup = remaining.filter(s => s.quantity === secondQty);
+    const totalMinorityBonus = price * state.config.minorityBonusMultiplier;
+    const perMinority = Math.floor(totalMinorityBonus / minorityGroup.length);
+
+    for (const s of minorityGroup) {
+      s.player.cash += perMinority;
+      addLog(state, s.player.id, 'BONUS',
+        `${s.player.name} 作为 ${hotelName} 第二大股东(${s.quantity}股)获得分红 $${perMinority.toLocaleString()}${minorityGroup.length > 1 ? '（平分）' : ''}`);
+    }
+    result.minority = minorityGroup[0];
+    result.minorityBonus = perMinority;
+  }
+
+  return result;
+}
+
 /** 发起并购：创建 MergerEvent，发放分红，设置决策队列 */
 function initiateMerger(state: GameState, survivor: Hotel, victim: Hotel) {
   // 安全检查：victim 可能已被之前的并购处理掉了
@@ -516,23 +563,9 @@ function initiateMerger(state: GameState, survivor: Hotel, victim: Hotel) {
     .filter((s) => s.quantity > 0)
     .sort((a, b) => b.quantity - a.quantity);
 
-  const majority = shareholders[0];
-  const minority = shareholders[1];
-
-  const majorityBonus = victimPrice * state.config.majorityBonusMultiplier;
-  const minorityBonus = victimPrice * state.config.minorityBonusMultiplier;
-
-  // 发放分红
-  if (majority) {
-    majority.player.cash += majorityBonus;
-    addLog(state, majority.player.id, 'BONUS',
-      `${majority.player.name} 作为 ${victim.name} 最大股东(${majority.quantity}股)获得分红 $${majorityBonus.toLocaleString()}`);
-  }
-  if (minority) {
-    minority.player.cash += minorityBonus;
-    addLog(state, minority.player.id, 'BONUS',
-      `${minority.player.name} 作为 ${victim.name} 第二大股东(${minority.quantity}股)获得分红 $${minorityBonus.toLocaleString()}`);
-  }
+  // 处理平级分红
+  const { majority, minority, majorityBonus: mBonus, minorityBonus: mMinorBonus } =
+    resolveBonuses(state, victim.name, victimPrice, shareholders);
 
   // 构建决策队列：所有持有 victim 股票的玩家
   const decisionQueue: string[] = shareholders.map((s) => s.player.id);
@@ -544,11 +577,11 @@ function initiateMerger(state: GameState, survivor: Hotel, victim: Hotel) {
     acquiredHotelColor: victim.color,
     victimStockPrice: victimPrice,
     majorityPlayerId: majority?.player.id || null,
-    majorityPlayerName: majority?.player.name || null,
+    majorityPlayerName: majority ? shareholders.filter(s => s.quantity === majority.quantity).map(s => s.player.name).join('、') : null,
     minorityPlayerId: minority?.player.id || null,
-    minorityPlayerName: minority?.player.name || null,
-    majorityBonus,
-    minorityBonus,
+    minorityPlayerName: minority ? shareholders.filter(s => s.quantity === minority.quantity).map(s => s.player.name).join('、') : null,
+    majorityBonus: mBonus,
+    minorityBonus: mMinorBonus,
     decisionQueue,
     currentDecisionPlayerIndex: 0,
     status: 'pending',
@@ -976,32 +1009,13 @@ export function calculateFinalScores(state: GameState) {
   for (const hotel of activeHotels) {
     if (hotel.size < 2) continue;
     const price = hotel.stockPrice;
-
-    // 找出该酒店的所有股东
     const shareholders = state.playerOrder
-      .map((pid) => {
-        const p = state.players[pid];
-        const h = p.stocks.find((s) => s.hotelId === hotel.id);
-        return { player: p, quantity: h?.quantity || 0 };
-      })
+      .map((pid) => ({ player: state.players[pid], quantity: state.players[pid].stocks.find((s) => s.hotelId === hotel.id)?.quantity || 0 }))
       .filter((s) => s.quantity > 0)
       .sort((a, b) => b.quantity - a.quantity);
 
-    const majority = shareholders[0];
-    const minority = shareholders[1];
-
-    if (majority) {
-      const bonus = price * state.config.majorityBonusMultiplier;
-      majority.player.cash += bonus;
-      addLog(state, majority.player.id, 'FINAL_BONUS',
-        `${majority.player.name} 作为 ${hotel.name} 最大股东(${majority.quantity}股)获得终局分红 $${bonus.toLocaleString()}`);
-    }
-    if (minority) {
-      const bonus = price * state.config.minorityBonusMultiplier;
-      minority.player.cash += bonus;
-      addLog(state, minority.player.id, 'FINAL_BONUS',
-        `${minority.player.name} 作为 ${hotel.name} 第二大股东(${minority.quantity}股)获得终局分红 $${bonus.toLocaleString()}`);
-    }
+    // 使用平级分红逻辑
+    resolveBonuses(state, hotel.name, price, shareholders);
   }
 
   // 所有股票按市价兑现，加现金

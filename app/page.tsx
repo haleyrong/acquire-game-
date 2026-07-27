@@ -6,7 +6,6 @@ import {
   GameBoard,
   PlayerHand,
   PlayerList,
-  GameLog,
   HotelPanel,
   StockMarket,
   ActionPanel,
@@ -180,7 +179,6 @@ export default function Home() {
         <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
           <PlayerList />
           <HotelPanel />
-          <GameLog />
         </div>
       </main>
     </div>
