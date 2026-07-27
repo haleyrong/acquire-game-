@@ -21,88 +21,92 @@ export default function GameRoomPage() {
   const [status, setStatus] = useState<'loading' | 'waiting' | 'playing' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
   const [players, setPlayers] = useState<{ id: string; name: string }[]>([]);
-
   const gameIdRef = useRef('');
+  const seenLogIds = useRef(new Set<string>());
 
-  // 本地引擎初始化（给所有玩家一样的初始状态）
-  const initEngine = (names: string[], pl: { id: string }[]) => {
-    useGameStore.getState().initGame(names);
-    const s = useGameStore.getState().gameState!;
-    const order: string[] = [];
-    for (let i = 0; i < pl.length; i++) {
-      const lid = s.playerOrder[i];
-      s.players[pl[i].id] = s.players[lid];
-      s.players[pl[i].id].id = pl[i].id;
-      delete s.players[lid];
-      order.push(pl[i].id);
-    }
-    s.playerOrder = order;
-    s.gameId = gameIdRef.current;
-    useGameStore.setState({ gameState: { ...s } });
+  // 从 JSON 快照加载游戏状态
+  const loadFromSnapshot = (snapshot: Record<string, unknown>) => {
+    const s = snapshot as unknown as ReturnType<typeof useGameStore.getState>['gameState'];
+    if (!s) return false;
+    useGameStore.setState({ gameState: s });
+    return true;
   };
 
   // 加载房间
   useEffect(() => {
     (async () => {
-      const { data: g } = await supabase.from('games').select('id,status').eq('code', code).maybeSingle();
+      const { data: g } = await supabase.from('games').select('id,status,state_snapshot')
+        .eq('code', code).maybeSingle();
       if (!g) return setErrorMsg('游戏不存在'), setStatus('error');
       gameIdRef.current = g.id;
-      const { data: pl } = await supabase.from('players').select('id,display_name').eq('game_id', g.id).order('turn_order');
+      const { data: pl } = await supabase.from('players').select('id,display_name')
+        .eq('game_id', g.id).order('turn_order');
       if (!pl?.length) return setErrorMsg('无玩家'), setStatus('error');
       setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
-      if (g.status === 'playing') {
-        initEngine(pl.map(p => p.display_name), pl);
-        setStatus('playing');
+
+      if (g.status === 'playing' && g.state_snapshot) {
+        // 从快照加载
+        if (loadFromSnapshot(g.state_snapshot as Record<string, unknown>)) {
+          setStatus('playing');
+        } else {
+          setErrorMsg('快照加载失败');
+          setStatus('error');
+        }
       } else {
         setStatus('waiting');
       }
     })();
   }, [code]);
 
-  // 等待室：每 2 秒检查
+  // 等待室轮询
   useEffect(() => {
     if (status !== 'waiting') return;
     const i = setInterval(async () => {
-      const { data: g } = await supabase.from('games').select('status').eq('id', gameIdRef.current).maybeSingle();
-      const { data: pl } = await supabase.from('players').select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
+      const { data: g } = await supabase.from('games')
+        .select('status,state_snapshot').eq('id', gameIdRef.current).maybeSingle();
+      const { data: pl } = await supabase.from('players')
+        .select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
       if (pl) setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
-      if (g?.status === 'playing' && pl && pl.length >= 2) {
-        initEngine(pl.map(p => p.display_name), pl);
-        setStatus('playing');
+      if (g?.status === 'playing' && g.state_snapshot && pl && pl.length >= 2) {
+        if (loadFromSnapshot(g.state_snapshot as Record<string, unknown>)) {
+          setStatus('playing');
+        }
       }
     }, 2000);
     return () => clearInterval(i);
   }, [status]);
 
-  // 写入操作到数据库（在 store 里 hook）
+  // 本地操作写入 game_log
   useEffect(() => {
     if (status !== 'playing') return;
-    useGameStore.getState().setRemoteHandler(async (action, payload, playerId) => {
+    const store = useGameStore.getState();
+    store.setRemoteHandler(async (action, payload, playerId) => {
       if (playerId !== pid) return;
       await supabase.from('game_log').insert({
         game_id: gameIdRef.current, player_id: playerId, action,
-        description: action, payload: payload as Record<string, unknown>,
+        description: action, payload,
       });
     });
   }, [status, pid]);
 
-  // 轮询读取远程操作 + 重放
+  // 轮询 game_log 并重放
   useEffect(() => {
     if (status !== 'playing') return;
-    const seenIds = new Set<string>();
     const i = setInterval(async () => {
-      const { data: logs } = await supabase
-        .from('game_log').select('*').eq('game_id', gameIdRef.current)
+      const { data: logs } = await supabase.from('game_log')
+        .select('*').eq('game_id', gameIdRef.current)
         .order('created_at', { ascending: true }).limit(100);
-      if (!logs) return;
+      if (!logs?.length) return;
+
       let changed = false;
       const s = useGameStore.getState().gameState;
       if (!s) return;
+
       for (const log of logs) {
-        if (seenIds.has(log.id)) continue;
-        seenIds.add(log.id);
-        if ((log.player_id as string) === pid) continue;
-        replayAction(s, log.action as string, (log.payload as Record<string, unknown> || {}), log.player_id as string);
+        if (seenLogIds.current.has(log.id)) continue;
+        seenLogIds.current.add(log.id);
+        if (log.player_id === pid) continue;
+        replayAction(s, log.action, (log.payload || {}) as Record<string, unknown>, log.player_id);
         changed = true;
       }
       if (changed) useGameStore.setState({ gameState: { ...s } });
@@ -110,10 +114,30 @@ export default function GameRoomPage() {
     return () => clearInterval(i);
   }, [status, pid]);
 
-  // 房主开始
+  // 房主开始游戏：创建状态 + 存快照
   const startGame = async () => {
-    await supabase.from('games').update({ status: 'playing' }).eq('id', gameIdRef.current);
-    initEngine(players.map(p => p.name), players);
+    const names = players.map(p => p.name);
+    useGameStore.getState().initGame(names);
+    const s = useGameStore.getState().gameState!;
+    // 用数据库 ID 替换本地 ID
+    const order: string[] = [];
+    for (let i = 0; i < players.length; i++) {
+      const lid = s.playerOrder[i];
+      s.players[players[i].id] = s.players[lid];
+      s.players[players[i].id].id = players[i].id;
+      delete s.players[lid];
+      order.push(players[i].id);
+    }
+    s.playerOrder = order;
+    s.gameId = gameIdRef.current;
+    useGameStore.setState({ gameState: { ...s } });
+
+    // 存快照到数据库
+    await supabase.from('games').update({
+      status: 'playing',
+      state_snapshot: JSON.parse(JSON.stringify(s)),
+    }).eq('id', gameIdRef.current);
+
     setStatus('playing');
   };
 
@@ -131,14 +155,13 @@ export default function GameRoomPage() {
           <div className="space-y-2 mb-6 text-left">
             {players.map((p, i) => (
               <div key={p.id} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
-                <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{i + 1}</span>
-                <span className="text-sm text-slate-700">{p.name}{i === 0 ? ' (房主)' : ''}</span>
+                <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{i+1}</span>
+                <span className="text-sm text-slate-700">{p.name}{i===0?' (房主)':''}</span>
               </div>
             ))}
           </div>
-          {isHost && players.length >= 2 && (
-            <button onClick={startGame} className="w-full py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600">🚀 开始游戏</button>
-          )}
+          {isHost && players.length >= 2 && <button onClick={startGame} className="w-full py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600">🚀 开始游戏</button>}
+          {isHost && players.length < 2 && <p className="text-xs text-slate-400">至少需要2名玩家</p>}
           {!isHost && <p className="text-sm text-slate-500 animate-pulse">等待房主开始游戏...</p>}
           <a href="/lobby" className="block mt-4 text-xs text-slate-400 hover:text-red-400">退出</a>
         </div>
@@ -149,23 +172,23 @@ export default function GameRoomPage() {
   return <GameUI code={code} pid={pid} />;
 }
 
-// 重放操作
 function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>, action: string, payload: Record<string, unknown>, playerId: string) {
   const p = s.players[playerId];
-  switch (action) {
-    case 'PLACE_TILE': {
-      const tid = payload.tileId as string;
-      if (tid && p) { if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid); Engine.placeTile(s, tid); }
-      break;
+  try {
+    switch (action) {
+      case 'PLACE_TILE': {
+        const tid = payload.tileId as string;
+        if (tid && p) { if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid); Engine.placeTile(s, tid); }
+        break;
+      }
+      case 'FOUND_HOTEL': { const h = payload.hotelId as string; if (h) Engine.foundHotel(s, h); break; }
+      case 'CHOOSE_ACQUIRER': { const h = payload.survivorId as string; if (h) Engine.chooseAcquirer(s, h); break; }
+      case 'BUY_STOCK': { Engine.buyStock(s, payload.hotelId as string, payload.quantity as number); break; }
+      case 'FINISH_BUYING': Engine.completeStockBuying(s); break;
+      case 'MERGER_DECISION': Engine.makeMergerDecision(s, (payload.mergerIndex as number)??0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number)||0); break;
+      case 'DECLARE_END': Engine.declareGameEnd(s); break;
     }
-    case 'FOUND_HOTEL': { const h = payload.hotelId as string; if (h) Engine.foundHotel(s, h); break; }
-    case 'CHOOSE_ACQUIRER': { const h = payload.survivorId as string; if (h) Engine.chooseAcquirer(s, h); break; }
-    case 'BUY_STOCK': { Engine.buyStock(s, payload.hotelId as string, payload.quantity as number); break; }
-    case 'FINISH_BUYING': Engine.completeStockBuying(s); break;
-    case 'MERGER_DECISION': Engine.makeMergerDecision(s, (payload.mergerIndex as number) ?? 0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number) || 0); break;
-    case 'FINISH_MERGERS': Engine.finishMergerDecisions(s); break;
-    case 'DECLARE_END': Engine.declareGameEnd(s); break;
-  }
+  } catch(e) { console.error('重放失败:', action, e); }
 }
 
 function GameUI({ code, pid }: { code: string; pid: string }) {
@@ -180,18 +203,18 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">🏨 并购风云</h1>
           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">房间 {code}</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${myTurn ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>{myTurn ? '✅ 你的回合' : '⏳ 对方回合'}</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${myTurn?'bg-green-100 text-green-600':'bg-orange-100 text-orange-600'}`}>{myTurn?'✅ 你的回合':'⏳ 对方回合'}</span>
         </div>
         <a href="/lobby" className="text-sm text-slate-500 hover:text-red-500">退出</a>
       </header>
       <HotelChoiceModal /><AcquirerChoiceModal /><MergerModal />
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-[1400px] mx-auto w-full">
         <div className="flex-1 flex flex-col gap-4">
-          {gs.status === 'finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} />}
+          {gs.status==='finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} />}
           {dev && <DevTilePicker />}
           <div className="space-y-3">
             {!dev && <PlayerHand isMyTurn={myTurn} />}
-            {gs.phase === 'buy_stocks' && !dev && <StockMarket />}
+            {gs.phase==='buy_stocks' && !dev && <StockMarket />}
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>
@@ -208,13 +231,13 @@ function Center({ icon, msg, sub }: { icon: string; msg: string; sub?: string })
 function OverScreen() {
   const gs = useGameStore(s => s.gameState);
   if (!gs) return null;
-  const ranks = gs.playerOrder.map(pid => ({ ...gs.players[pid] })).sort((a, b) => b.cash - a.cash);
+  const ranks = gs.playerOrder.map(pid => ({ ...gs.players[pid] })).sort((a,b) => b.cash-a.cash);
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="bg-white rounded-2xl p-8 shadow-md border border-slate-200 max-w-md w-full text-center">
         <p className="text-5xl mb-4">🏆</p><h2 className="text-2xl font-bold text-slate-800 mb-2">游戏结束！</h2>
         <div className="space-y-3 mb-6">
-          {ranks.map((p, i) => <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl ${i===0?'bg-amber-50 border border-amber-200':'bg-slate-50'}`}><span className="text-2xl">{i===0?'🥇':i===1?'🥈':'🥉'}</span><span className="font-medium">{p.name}</span><span className="font-mono font-bold text-emerald-600">${p.cash.toLocaleString()}</span></div>)}
+          {ranks.map((p,i) => <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl ${i===0?'bg-amber-50 border border-amber-200':'bg-slate-50'}`}><span className="text-2xl">{i===0?'🥇':i===1?'🥈':'🥉'}</span><span className="font-medium">{p.name}</span><span className="font-mono font-bold text-emerald-600">${p.cash.toLocaleString()}</span></div>)}
         </div>
         <a href="/lobby" className="block w-full py-3 bg-blue-500 text-white rounded-xl font-semibold hover:bg-blue-600">返回大厅</a>
       </div>
