@@ -26,173 +26,153 @@ export default function GameRoomPage() {
   const [status, setStatus] = useState<'loading' | 'waiting' | 'playing' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
   const [joinedPlayers, setJoinedPlayers] = useState<{ id: string; name: string }[]>([]);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const gameIdRef = useRef<string>('');
+  const lastLogTimeRef = useRef<string>('');
 
-  // ---- 加载房间 ----
-  useEffect(() => {
+  // ==== 加载房间 ====
+  const loadRoom = useCallback(async () => {
     if (!code || !pid) return;
+    try {
+      const { data: game, error: gameErr } = await supabase
+        .from('games').select('id,status').eq('code', code).maybeSingle();
+      if (gameErr) { setErrorMsg(gameErr.message); setStatus('error'); return; }
+      if (!game) { setErrorMsg('游戏不存在'); setStatus('error'); return; }
+      gameIdRef.current = game.id;
 
-    async function load() {
-      try {
-        const { data: game, error: gameErr } = await supabase
-          .from('games')
-          .select('id,status')
-          .eq('code', code)
-          .maybeSingle();
+      // 查询玩家
+      const { data: players } = await supabase
+        .from('players').select('id,display_name').eq('game_id', game.id).order('turn_order');
+      if (!players) { setErrorMsg('无玩家'); setStatus('error'); return; }
+      setJoinedPlayers(players.map((p) => ({ id: p.id, name: p.display_name })));
 
-        if (gameErr) throw new Error(gameErr.message);
-        if (!game) { setErrorMsg('游戏不存在'); setStatus('error'); return; }
-
-        gameIdRef.current = game.id;
-
-        // 查询玩家
-        const { data: players } = await supabase
-          .from('players')
-          .select('id,display_name')
-          .eq('game_id', game.id)
-          .order('turn_order');
-
-        if (!players) { setErrorMsg('无玩家'); setStatus('error'); return; }
-        setJoinedPlayers(players.map((p) => ({ id: p.id, name: p.display_name })));
-
-        // 如果游戏已经开始，初始化引擎
-        if (game.status === 'playing') {
-          const playerNames = players.map((p) => p.display_name);
-          store.initGame(playerNames);
-
-          const state = useGameStore.getState().gameState;
-          if (!state) { setErrorMsg('引擎失败'); setStatus('error'); return; }
-
-          const newOrder: string[] = [];
-          for (let i = 0; i < players.length; i++) {
-            const localId = state.playerOrder[i];
-            const dbId = players[i].id;
-            state.players[dbId] = state.players[localId];
-            state.players[dbId].id = dbId;
-            delete state.players[localId];
-            newOrder.push(dbId);
-          }
-          state.playerOrder = newOrder;
-          state.gameId = game.id;
-          useGameStore.setState({ gameState: { ...state } });
-          setStatus('playing');
-        } else {
-          setStatus('waiting');
-        }
-
-        // 设置远程同步
-        store.setRemoteHandler(async (action, payload, playerId) => {
-          if (playerId !== pid) return;
-          const p = useGameStore.getState().gameState?.players[playerId];
-          await supabase.from('game_log').insert({
-            game_id: game.id, player_id: playerId, action,
-            description: `${p?.name || '?'}: ${action}`, payload,
-          });
-        });
-
-        // 订阅 game_log（远程操作）
-        const channel = supabase
-          .channel(`game:${game.id}`)
-          .on('postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'game_log', filter: `game_id=eq.${game.id}` },
-            (p) => {
-              const log = p.new as Record<string, unknown>;
-              if ((log.player_id as string) === pid) return;
-              const s = useGameStore.getState().gameState;
-              if (!s) return;
-              applyRemoteAction(s, log.action as string, (log.payload || {}) as Record<string, unknown>, log.player_id as string);
-              useGameStore.setState({ gameState: { ...s } });
-            }
-          )
-          // 订阅 players 表（有新玩家加入）
-          .on('postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'players', filter: `game_id=eq.${game.id}` },
-            async () => {
-              const { data: pl } = await supabase.from('players').select('id,display_name')
-                .eq('game_id', game.id).order('turn_order');
-            if (pl) setJoinedPlayers(pl.map((x: { id: string; display_name: string }) => ({ id: x.id, name: x.display_name })));
-            }
-          )
-          // 订阅 games 表（游戏开始）
-          .on('postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${game.id}` },
-            async (p) => {
-              const g = p.new as Record<string, unknown>;
-              if (g.status === 'playing' && status === 'waiting') {
-                // 游戏被房主启动了，初始化引擎
-                const { data: pl } = await supabase.from('players').select('id,display_name')
-                  .eq('game_id', game.id).order('turn_order');
-                if (!pl) return;
-                const names = pl.map((x) => x.display_name);
-                store.initGame(names);
-                const s = useGameStore.getState().gameState;
-                if (!s) return;
-                const order: string[] = [];
-                for (let i = 0; i < pl.length; i++) {
-                  const lid = s.playerOrder[i];
-                  s.players[pl[i].id] = s.players[lid];
-                  s.players[pl[i].id].id = pl[i].id;
-                  delete s.players[lid];
-                  order.push(pl[i].id);
-                }
-                s.playerOrder = order;
-                s.gameId = game.id;
-                useGameStore.setState({ gameState: { ...s } });
-                setStatus('playing');
-              }
-            }
-          )
-          .subscribe();
-
-        channelRef.current = channel;
-      } catch (e) {
-        setErrorMsg(`${(e as Error).message}`);
-        setStatus('error');
+      if (game.status === 'playing') {
+        initEngine(players.map((p) => p.display_name), players);
+        setStatus('playing');
+      } else {
+        setStatus('waiting');
       }
+    } catch (e) {
+      setErrorMsg(`${(e as Error).message}`);
+      setStatus('error');
     }
+  }, [code, pid]);
 
-    load();
-    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
-  }, []); // eslint-disable-line
-
-  // ---- 房主开始游戏 ----
-  const handleStart = useCallback(async () => {
-    if (!gameIdRef.current) return;
-    const { error } = await supabase.from('games').update({ status: 'playing' }).eq('id', gameIdRef.current);
-    if (error) { setErrorMsg(error.message); return; }
-
-    // 房主自己初始化
-    const names = joinedPlayers.map((p) => p.name);
+  const initEngine = (names: string[], players: { id: string }[]) => {
     store.initGame(names);
     const s = useGameStore.getState().gameState;
     if (!s) return;
     const order: string[] = [];
-    for (let i = 0; i < joinedPlayers.length; i++) {
+    for (let i = 0; i < players.length; i++) {
       const lid = s.playerOrder[i];
-      s.players[joinedPlayers[i].id] = s.players[lid];
-      s.players[joinedPlayers[i].id].id = joinedPlayers[i].id;
+      s.players[players[i].id] = s.players[lid];
+      s.players[players[i].id].id = players[i].id;
       delete s.players[lid];
-      order.push(joinedPlayers[i].id);
+      order.push(players[i].id);
     }
     s.playerOrder = order;
     s.gameId = gameIdRef.current;
     useGameStore.setState({ gameState: { ...s } });
+  };
+
+  useEffect(() => {
+    loadRoom();
+  }, [loadRoom]);
+
+  // ==== 等待室：轮询检查游戏是否开始和新玩家加入 ====
+  useEffect(() => {
+    if (status !== 'waiting') return;
+    const id = setInterval(async () => {
+      try {
+        const { data: game } = await supabase
+          .from('games').select('status').eq('id', gameIdRef.current).maybeSingle();
+        if (game?.status === 'playing') {
+          const { data: pl } = await supabase
+            .from('players').select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
+          if (pl && pl.length >= 2) {
+            initEngine(pl.map((x) => x.display_name), pl);
+            setStatus('playing');
+          }
+        }
+        // 检查新玩家
+        const { data: pl } = await supabase
+          .from('players').select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
+        if (pl) setJoinedPlayers(pl.map((x) => ({ id: x.id, name: x.display_name })));
+      } catch {} // eslint-disable-line
+    }, 2000);
+    return () => clearInterval(id);
+  }, [status]); // eslint-disable-line
+
+  // ==== 游戏中：轮询同步操作 ====
+  useEffect(() => {
+    if (status !== 'playing') return;
+
+    // 设置 local → remote 同步
+    store.setRemoteHandler(async (action, payload, playerId) => {
+      if (playerId !== pid) return;
+      const p = useGameStore.getState().gameState?.players[playerId];
+      await supabase.from('game_log').insert({
+        game_id: gameIdRef.current, player_id: playerId, action,
+        description: `${p?.name || '?'}: ${action}`, payload,
+      });
+    });
+
+    // 轮询获取远程操作
+    const id = setInterval(async () => {
+      try {
+        let query = supabase
+          .from('game_log')
+          .select('*')
+          .eq('game_id', gameIdRef.current)
+          .order('created_at', { ascending: true })
+          .limit(50);
+
+        if (lastLogTimeRef.current) {
+          query = query.gt('created_at', lastLogTimeRef.current);
+        }
+
+        const { data: logs } = await query;
+
+        if (logs && logs.length > 0) {
+          for (const log of logs) {
+            if ((log.player_id as string) === pid) continue;
+            const s = useGameStore.getState().gameState;
+            if (!s) continue;
+            applyRemoteAction(s, log.action as string, (log.payload || {}) as Record<string, unknown>, log.player_id as string);
+            useGameStore.setState({ gameState: { ...s } });
+          }
+          lastLogTimeRef.current = logs[logs.length - 1].created_at as string;
+        }
+      } catch {} // eslint-disable-line
+    }, 1500);
+
+    return () => {
+      clearInterval(id);
+      store.setRemoteHandler(null);
+    };
+  }, [status]); // eslint-disable-line
+
+  // ==== 房主开始游戏 ====
+  const handleStart = useCallback(async () => {
+    if (!gameIdRef.current) return;
+    const { error } = await supabase.from('games').update({ status: 'playing' }).eq('id', gameIdRef.current);
+    if (error) { setErrorMsg(error.message); return; }
+    initEngine(joinedPlayers.map((p) => p.name), joinedPlayers);
     setStatus('playing');
-  }, [joinedPlayers, store]);
+  }, [joinedPlayers]);
 
-  // ---- 渲染 ----
+  // ==== 渲染 ====
   if (status === 'loading') return <CenterMsg icon="🎲" msg="加载中..." sub={`房间 ${code}`} />;
-  if (status === 'error') return <CenterMsg icon="😢" msg="加载失败" sub={errorMsg} extra={<a href="/lobby" className="text-sm text-blue-500 hover:text-blue-600">返回大厅</a>} />;
+  if (status === 'error') return <CenterMsg icon="😢" msg="加载失败" sub={errorMsg} extra={<BackBtn />} />;
 
-  // 等待室
   if (status === 'waiting') {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl p-8 shadow-md border border-slate-200 max-w-sm w-full text-center">
           <p className="text-4xl mb-4">⏳</p>
           <h2 className="text-xl font-bold text-slate-800 mb-2">等待玩家加入</h2>
-          <p className="text-sm text-slate-500 mb-1">房间码: <span className="text-2xl font-bold tracking-widest text-blue-600">{code}</span></p>
+          <p className="text-sm text-slate-500 mb-1">
+            房间码: <span className="text-2xl font-bold tracking-widest text-blue-600">{code}</span>
+          </p>
           <p className="text-xs text-slate-400 mb-6">把房间码发给朋友即可加入</p>
 
           <div className="space-y-2 mb-6 text-left">
@@ -230,8 +210,31 @@ export default function GameRoomPage() {
   return <GameUI code={code} pid={pid} />;
 }
 
-// ---- UI ----
+// ==== 远程操作重放 ====
+function applyRemoteAction(
+  state: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>,
+  action: string, payload: Record<string, unknown>, playerId: string
+) {
+  const p = state.players[playerId];
+  switch (action) {
+    case 'PLACE_TILE': {
+      const tid = payload.tileId as string;
+      if (!tid || !p) return;
+      if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid);
+      placeTile(state, tid);
+      break;
+    }
+    case 'FOUND_HOTEL': { const hid = payload.hotelId as string; if (hid) foundHotel(state, hid); break; }
+    case 'CHOOSE_ACQUIRER': { const sid = payload.survivorId as string; if (sid) chooseAcquirer(state, sid); break; }
+    case 'BUY_STOCK': { const hid = payload.hotelId as string; const qty = payload.quantity as number; if (hid && qty) buyStock(state, hid, qty); break; }
+    case 'FINISH_BUYING': completeStockBuying(state); break;
+    case 'MERGER_DECISION': makeMergerDecision(state, (payload.mergerIndex as number) ?? 0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number) || 0); break;
+    case 'FINISH_MERGERS': finishMergerDecisions(state); break;
+    case 'DECLARE_END': declareGameEnd(state); break;
+  }
+}
 
+// ==== 游戏界面 ====
 function GameUI({ code, pid }: { code: string; pid: string }) {
   const gameState = useGameStore((s) => s.gameState);
   const devMode = useGameStore((s) => s.devMode);
@@ -282,51 +285,6 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
   );
 }
 
-// ---- 远程操作重放 ----
-
-function applyRemoteAction(
-  state: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>,
-  action: string, payload: Record<string, unknown>, playerId: string
-) {
-  const p = state.players[playerId];
-  switch (action) {
-    case 'PLACE_TILE': {
-      const tid = payload.tileId as string;
-      if (!tid || !p) return;
-      if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid);
-      placeTile(state, tid);
-      break;
-    }
-    case 'FOUND_HOTEL': {
-      const hid = payload.hotelId as string;
-      if (hid) foundHotel(state, hid);
-      break;
-    }
-    case 'CHOOSE_ACQUIRER': {
-      const sid = payload.survivorId as string;
-      if (sid) chooseAcquirer(state, sid);
-      break;
-    }
-    case 'BUY_STOCK': {
-      const hid = payload.hotelId as string;
-      const qty = payload.quantity as number;
-      if (hid && qty) buyStock(state, hid, qty);
-      break;
-    }
-    case 'FINISH_BUYING':
-      completeStockBuying(state); break;
-    case 'MERGER_DECISION':
-      makeMergerDecision(state, (payload.mergerIndex as number) ?? 0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number) || 0);
-      break;
-    case 'FINISH_MERGERS':
-      finishMergerDecisions(state); break;
-    case 'DECLARE_END':
-      declareGameEnd(state); break;
-  }
-}
-
-// ---- 工具组件 ----
-
 function CenterMsg({ icon, msg, sub, extra }: { icon: string; msg: string; sub?: string; extra?: React.ReactNode }) {
   return (
     <div className="flex-1 flex items-center justify-center">
@@ -338,6 +296,10 @@ function CenterMsg({ icon, msg, sub, extra }: { icon: string; msg: string; sub?:
       </div>
     </div>
   );
+}
+
+function BackBtn() {
+  return <a href="/lobby" className="text-sm text-blue-500 hover:text-blue-600">返回大厅</a>;
 }
 
 function GameOverScreen() {
