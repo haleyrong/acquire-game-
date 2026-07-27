@@ -27,7 +27,7 @@ export default function GameRoomPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [joinedPlayers, setJoinedPlayers] = useState<{ id: string; name: string }[]>([]);
   const gameIdRef = useRef<string>('');
-  const lastLogTimeRef = useRef<string>('');
+  const processedLogIds = useRef<Set<string>>(new Set());
 
   // ==== 加载房间 ====
   const loadRoom = useCallback(async () => {
@@ -110,39 +110,44 @@ export default function GameRoomPage() {
     store.setRemoteHandler(async (action, payload, playerId) => {
       if (playerId !== pid) return;
       const p = useGameStore.getState().gameState?.players[playerId];
-      await supabase.from('game_log').insert({
+      const { error } = await supabase.from('game_log').insert({
         game_id: gameIdRef.current, player_id: playerId, action,
         description: `${p?.name || '?'}: ${action}`, payload,
       });
+      if (error) console.error('写入 game_log 失败:', error);
     });
 
-    // 轮询获取远程操作
+    // 轮询获取远程操作（每1.5秒）
     const id = setInterval(async () => {
       try {
-        let query = supabase
+        const { data: logs } = await supabase
           .from('game_log')
-          .select('*')
+          .select('id,action,payload,player_id')
           .eq('game_id', gameIdRef.current)
           .order('created_at', { ascending: true })
-          .limit(50);
-
-        if (lastLogTimeRef.current) {
-          query = query.gt('created_at', lastLogTimeRef.current);
-        }
-
-        const { data: logs } = await query;
+          .limit(30);
 
         if (logs && logs.length > 0) {
+          let changed = false;
+          const s = useGameStore.getState().gameState;
+          if (!s) return;
+
           for (const log of logs) {
+            // 跳过已处理的
+            if (processedLogIds.current.has(log.id)) continue;
+            processedLogIds.current.add(log.id);
+            // 跳过自己的
             if ((log.player_id as string) === pid) continue;
-            const s = useGameStore.getState().gameState;
-            if (!s) continue;
+            // 重放远程操作
             applyRemoteAction(s, log.action as string, (log.payload || {}) as Record<string, unknown>, log.player_id as string);
+            changed = true;
+          }
+
+          if (changed) {
             useGameStore.setState({ gameState: { ...s } });
           }
-          lastLogTimeRef.current = logs[logs.length - 1].created_at as string;
         }
-      } catch {} // eslint-disable-line
+      } catch (e) { console.error('轮询失败:', e); }
     }, 1500);
 
     return () => {
