@@ -694,9 +694,12 @@ function finalizeMerger(state: GameState, merger: MergerEvent) {
     addLog(state, '', 'SAFE', `${survivor.name} 规模达到 ${survivor.size}，成为安全酒店！`);
   }
 
-  // 注销 victim
+  // 注销 victim，重置并加回可激活列表
   victim.isActive = false;
   victim.size = 0;
+  victim.remainingStocks = state.config.stocksPerHotel;
+  victim.isSafe = false;
+  state.inactiveHotels.push(victim.id);
 
   addLog(state, '', 'MERGER_DONE',
     `${survivor.name} 完成并购 ${merger.acquiredHotelName}！（规模 ${survivor.size} 块）`);
