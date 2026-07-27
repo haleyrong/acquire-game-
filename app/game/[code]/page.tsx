@@ -86,6 +86,15 @@ export default function GameRoomPage() {
         game_id: gameIdRef.current, player_id: playerId, action,
         description: action, payload,
       });
+      // 每次 FINISH_BUYING 保存完整快照
+      if (action === 'FINISH_BUYING') {
+        const s = useGameStore.getState().gameState;
+        if (s) {
+          await supabase.from('games').update({
+            state_snapshot: JSON.parse(JSON.stringify(s)),
+          }).eq('id', gameIdRef.current);
+        }
+      }
     });
   }, [status, pid]);
 
@@ -263,7 +272,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
           {dev && <DevTilePicker />}
           <div className="space-y-3">
             {!dev && <PlayerHand isMyTurn={myTurn} localPlayerId={pid} />}
-            {gs.phase==='buy_stocks' && !dev && <StockMarket />}
+            {gs.phase==='buy_stocks' && !dev && <StockMarket isMyTurn={myTurn} />}
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>

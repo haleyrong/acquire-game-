@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 
-export function StockMarket() {
+export function StockMarket({ isMyTurn = true }: { isMyTurn?: boolean }) {
   const gameState = useGameStore((s) => s.gameState);
   const confirmBuyStock = useGameStore((s) => s.confirmBuyStock);
 
@@ -13,6 +13,30 @@ export function StockMarket() {
   if (!gameState || gameState.phase !== 'buy_stocks') return null;
 
   const player = getCurrentPlayer(gameState);
+
+  // 不是自己回合：只读显示
+  if (!isMyTurn) {
+    const myHoldings = player.stocks.filter(s => s.quantity > 0);
+    if (myHoldings.length === 0) return null;
+    return (
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+        <h3 className="text-sm font-semibold text-slate-700 mb-2">💰 你的持股</h3>
+        <div className="space-y-1">
+          {myHoldings.map(s => {
+            const hotel = gameState.hotels[s.hotelId];
+            if (!hotel) return null;
+            return (
+              <div key={s.hotelId} className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: hotel.color }} />
+                <span>{hotel.name}</span>
+                <span className="font-mono ml-auto">{s.quantity} 股 × ${hotel.stockPrice.toLocaleString()}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   const maxBuy = gameState.config.maxBuyPerTurn;
   const bought = gameState.stocksBoughtThisTurn;
   const remaining = maxBuy - bought;
