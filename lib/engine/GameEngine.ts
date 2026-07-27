@@ -133,6 +133,16 @@ export function createGame(
     }
   }
 
+  // 5. 随机放置 N 块初始板块（N = 玩家人数）
+  const remainingTiles = allTileIds.filter((id) => {
+    // 未被发到手中的板块
+    return !Object.values(players).some((p) => p.handTileIds.includes(id));
+  });
+  const preplacedTiles = shuffle(remainingTiles).slice(0, playerNames.length);
+  for (const tileId of preplacedTiles) {
+    tiles[tileId].placed = true;
+  }
+
   const state: GameState = {
     gameId,
     mode: 'classic',
