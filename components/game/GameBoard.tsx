@@ -4,7 +4,7 @@ import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 import { BoardTile } from './BoardTile';
 
-export function GameBoard() {
+export function GameBoard({ readOnly = false }: { readOnly?: boolean }) {
   const gameState = useGameStore((s) => s.gameState);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
   const devMode = useGameStore((s) => s.devMode);
@@ -14,7 +14,7 @@ export function GameBoard() {
   if (!gameState) return null;
 
   const player = getCurrentPlayer(gameState);
-  const isMyTurn = gameState.phase === 'place_tile' || devMode;
+  const isMyTurn = (!readOnly && gameState.phase === 'place_tile') || devMode;
   const isChoosingHotel = gameState.phase === 'choose_hotel';
 
   // 计算需要高亮的 pending 板块

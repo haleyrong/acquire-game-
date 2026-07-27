@@ -3,7 +3,7 @@
 import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 
-export function PlayerHand() {
+export function PlayerHand({ isMyTurn = true }: { isMyTurn?: boolean }) {
   const gameState = useGameStore((s) => s.gameState);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
   const selectTile = useGameStore((s) => s.selectTile);
@@ -39,6 +39,7 @@ export function PlayerHand() {
                 }
               `}
               onClick={() => {
+                if (!isMyTurn) return;
                 if (isSelected) {
                   confirmPlaceTile();
                 } else {

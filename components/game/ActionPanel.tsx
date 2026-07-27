@@ -3,7 +3,7 @@
 import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 
-export function ActionPanel() {
+export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
   const gameState = useGameStore((s) => s.gameState);
   const devMode = useGameStore((s) => s.devMode);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
@@ -72,7 +72,18 @@ export function ActionPanel() {
         </div>
       </div>
 
-      {/* 操作按钮 */}
+      {/* 不是自己回合 */}
+      {!isMyTurn && !devMode && phase !== 'game_over' && (
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+          <p className="text-sm text-slate-500">⏳ 等待对手操作...</p>
+          <p className="text-xs text-slate-400 mt-1">
+            当前阶段：{phase === 'place_tile' ? '放置板块' : phase === 'buy_stocks' ? '购买股票' : phase === 'merger_decisions' ? '并购决策' : '操作中'}
+          </p>
+        </div>
+      )}
+
+      {/* 操作按钮（仅自己回合） */}
+      {(isMyTurn || devMode) && (
       <div className="flex gap-2">
         {/* 放置板块阶段 */}
         {phase === 'place_tile' && (
@@ -127,11 +138,13 @@ export function ActionPanel() {
           </div>
         )}
       </div>
+      )}
 
       <p className="text-xs text-slate-400 mt-2">
-        {devMode && phase === 'place_tile' && '在下方板块选择器中点选板块，再点棋盘空位放置。满足条件时可宣布游戏结束'}
-        {!devMode && phase === 'place_tile' && '点击手牌选择板块，再点一次放置到棋盘。满足条件时可宣布游戏结束'}
-        {canEndGame() && phase === 'place_tile' && ' ⚡ 已满足结束条件，可以宣布游戏结束！'}
+        {!isMyTurn && !devMode && phase !== 'game_over' && '请等待对手完成操作，棋盘会自动更新'}
+        {devMode && phase === 'place_tile' && '在下方板块选择器中点选板块，再点棋盘空位放置'}
+        {!devMode && isMyTurn && phase === 'place_tile' && '点击手牌选择板块，再点一次放置到棋盘'}
+        {canEndGame() && phase === 'place_tile' && isMyTurn && ' ⚡ 已满足结束条件，可以宣布游戏结束！'}
         {phase === 'choose_hotel' && '请在弹窗中选择要激活的酒店连锁'}
         {phase === 'choose_acquirer' && '请在弹窗中选择并购方'}
         {phase === 'merger_decisions' && '并购正在进行，请在弹窗中做出决策'}
