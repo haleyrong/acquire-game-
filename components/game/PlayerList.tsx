@@ -3,7 +3,7 @@
 import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 
-export function PlayerList() {
+export function PlayerList({ localPlayerId }: { localPlayerId?: string }) {
   const gameState = useGameStore((s) => s.gameState);
 
   if (!gameState) return null;
@@ -16,7 +16,8 @@ export function PlayerList() {
       <div className="space-y-2">
         {gameState.playerOrder.map((playerId, index) => {
           const player = gameState.players[playerId];
-          const isCurrent = player.id === currentPlayer.id;
+          const isCurrentTurn = player.id === currentPlayer.id;
+          const isMe = localPlayerId ? player.id === localPlayerId : isCurrentTurn;
           const totalStocks = player.stocks.reduce((sum, s) => sum + s.quantity, 0);
 
           return (
@@ -24,27 +25,30 @@ export function PlayerList() {
               key={player.id}
               className={`
                 p-2 rounded-lg transition-all
-                ${isCurrent ? 'bg-blue-50 border border-blue-200' : 'border border-transparent'}
+                ${isCurrentTurn ? 'bg-blue-50 border border-blue-200' : 'border border-transparent'}
               `}
             >
               <div className="flex items-center gap-3">
-                {/* 回合指示器 */}
                 <div
                   className={`
                     w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0
-                    ${isCurrent ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-500'}
+                    ${isCurrentTurn ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-500'}
                   `}
                 >
                   {index + 1}
                 </div>
 
-                {/* 玩家信息 */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`font-medium text-sm truncate ${isCurrent ? 'text-blue-700' : 'text-slate-700'}`}>
+                    <span className={`font-medium text-sm truncate ${isCurrentTurn ? 'text-blue-700' : 'text-slate-700'}`}>
                       {player.name}
                     </span>
-                    {isCurrent && (
+                    {isMe && (
+                      <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full">
+                        我
+                      </span>
+                    )}
+                    {isCurrentTurn && (
                       <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">
                         当前
                       </span>
@@ -60,6 +64,33 @@ export function PlayerList() {
                   </div>
                 </div>
               </div>
+
+              {/* 自己的持股明细（始终可见） */}
+              {isMe && player.stocks.length > 0 && (
+                <div className="mt-2 ml-11 pl-2 border-l-2 border-slate-200">
+                  {player.stocks
+                    .filter(s => s.quantity > 0)
+                    .map(s => {
+                      const hotel = gameState.hotels[s.hotelId];
+                      if (!hotel) return null;
+                      return (
+                        <div key={s.hotelId} className="flex items-center gap-1.5 py-0.5 text-xs">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: hotel.color }}
+                          />
+                          <span className="text-slate-600">{hotel.name}</span>
+                          <span className="font-mono font-medium text-slate-700 ml-auto">
+                            {s.quantity} 股
+                          </span>
+                          <span className="text-slate-400">
+                            (${hotel.stockPrice.toLocaleString()})
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
           );
         })}

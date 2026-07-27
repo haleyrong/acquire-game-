@@ -173,26 +173,52 @@ export default function GameRoomPage() {
 }
 
 function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>, action: string, payload: Record<string, unknown>, playerId: string) {
-  const p = s.players[playerId];
+  if (!s.players[playerId]) return;
+
+  // 保存当前回合状态，切换为操作者
+  const savedIndex = s.currentPlayerIndex;
+  const savedPhase = s.phase;
+  const remoteIndex = s.playerOrder.indexOf(playerId);
+  if (remoteIndex >= 0) {
+    s.currentPlayerIndex = remoteIndex;
+    // 临时切换 phase 让引擎函数不拦截
+    s.phase = (action === 'FINISH_BUYING') ? 'buy_stocks' : 'place_tile';
+  }
+
   try {
     switch (action) {
       case 'PLACE_TILE': {
         const tid = payload.tileId as string;
-        if (tid && p) { if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid); Engine.placeTile(s, tid); }
+        if (tid) {
+          const p = s.players[playerId];
+          if (p && !p.handTileIds.includes(tid)) p.handTileIds.push(tid);
+          Engine.placeTile(s, tid);
+        }
         break;
       }
       case 'FOUND_HOTEL': { const h = payload.hotelId as string; if (h) Engine.foundHotel(s, h); break; }
       case 'CHOOSE_ACQUIRER': { const h = payload.survivorId as string; if (h) Engine.chooseAcquirer(s, h); break; }
       case 'BUY_STOCK': { Engine.buyStock(s, payload.hotelId as string, payload.quantity as number); break; }
-      case 'FINISH_BUYING':
-        // 先用指定牌补牌，再结束回合
+      case 'FINISH_BUYING': {
         Engine.drawSpecificTile(s, playerId, payload.drawnTileId as string);
-        Engine.nextTurn(s);
+        // 手动推进回合
+        const order = s.playerOrder;
+        const nextIdx = (order.indexOf(playerId) + 1) % order.length;
+        s.currentPlayerIndex = nextIdx;
+        s.phase = 'place_tile';
+        s.stocksBoughtThisTurn = 0;
         break;
+      }
       case 'MERGER_DECISION': Engine.makeMergerDecision(s, (payload.mergerIndex as number)??0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number)||0); break;
       case 'DECLARE_END': Engine.declareGameEnd(s); break;
     }
   } catch(e) { console.error('重放失败:', action, e); }
+
+  // 恢复阶段（除非 FINISH_BUYING 已经推进了回合）
+  if (action !== 'FINISH_BUYING') {
+    s.currentPlayerIndex = savedIndex;
+    s.phase = savedPhase;
+  }
 }
 
 function GameUI({ code, pid }: { code: string; pid: string }) {
@@ -217,12 +243,12 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
           {gs.status==='finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} />}
           {dev && <DevTilePicker />}
           <div className="space-y-3">
-            {!dev && <PlayerHand isMyTurn={myTurn} />}
+            {!dev && <PlayerHand isMyTurn={myTurn} localPlayerId={pid} />}
             {gs.phase==='buy_stocks' && !dev && <StockMarket />}
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>
-        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList /><HotelPanel /><GameLog /></div>
+        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /><GameLog /></div>
       </main>
     </div>
   );

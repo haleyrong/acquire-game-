@@ -3,7 +3,7 @@
 import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 
-export function PlayerHand({ isMyTurn = true }: { isMyTurn?: boolean }) {
+export function PlayerHand({ isMyTurn = true, localPlayerId }: { isMyTurn?: boolean; localPlayerId?: string }) {
   const gameState = useGameStore((s) => s.gameState);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
   const selectTile = useGameStore((s) => s.selectTile);
@@ -11,7 +11,10 @@ export function PlayerHand({ isMyTurn = true }: { isMyTurn?: boolean }) {
 
   if (!gameState) return null;
 
-  const player = getCurrentPlayer(gameState);
+  // 始终显示本地玩家的手牌，不受回合阶段影响
+  const player = localPlayerId ? gameState.players[localPlayerId] : getCurrentPlayer(gameState);
+  if (!player) return null;
+
   const handTiles = player.handTileIds
     .map((id) => gameState.tiles[id])
     .filter(Boolean);
