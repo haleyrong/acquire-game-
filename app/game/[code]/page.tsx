@@ -1,14 +1,10 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useGameStore } from '@/store/gameStore';
 import { supabase } from '@/lib/supabase/client';
-import {
-  placeTile, foundHotel, chooseAcquirer, buyStock,
-  completeStockBuying, makeMergerDecision,
-  finishMergerDecisions, declareGameEnd, getCurrentPlayer,
-} from '@/lib/engine/GameEngine';
+import * as Engine from '@/lib/engine/GameEngine';
 import {
   GameBoard, PlayerHand, PlayerList, GameLog, HotelPanel,
   StockMarket, ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
@@ -16,158 +12,113 @@ import {
 } from '@/components/game';
 
 export default function GameRoomPage() {
-  const params = useParams();
-  const searchParams = useSearchParams();
-  const code = (params.code as string)?.toUpperCase() || '';
-  const pid = searchParams.get('pid') || '';
-  const isHost = searchParams.get('host') === 'true';
+  const { code: _code } = useParams();
+  const sp = useSearchParams();
+  const code = (_code as string)?.toUpperCase() || '';
+  const pid = sp.get('pid') || '';
+  const isHost = sp.get('host') === 'true';
 
-  const store = useGameStore();
   const [status, setStatus] = useState<'loading' | 'waiting' | 'playing' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
-  const [joinedPlayers, setJoinedPlayers] = useState<{ id: string; name: string }[]>([]);
-  const gameIdRef = useRef<string>('');
-  const processedLogIds = useRef<Set<string>>(new Set());
+  const [players, setPlayers] = useState<{ id: string; name: string }[]>([]);
 
-  // ==== 加载房间 ====
-  const loadRoom = useCallback(async () => {
-    if (!code || !pid) return;
-    try {
-      const { data: game, error: gameErr } = await supabase
-        .from('games').select('id,status').eq('code', code).maybeSingle();
-      if (gameErr) { setErrorMsg(gameErr.message); setStatus('error'); return; }
-      if (!game) { setErrorMsg('游戏不存在'); setStatus('error'); return; }
-      gameIdRef.current = game.id;
+  const gameIdRef = useRef('');
 
-      // 查询玩家
-      const { data: players } = await supabase
-        .from('players').select('id,display_name').eq('game_id', game.id).order('turn_order');
-      if (!players) { setErrorMsg('无玩家'); setStatus('error'); return; }
-      setJoinedPlayers(players.map((p) => ({ id: p.id, name: p.display_name })));
-
-      if (game.status === 'playing') {
-        initEngine(players.map((p) => p.display_name), players);
-        setStatus('playing');
-      } else {
-        setStatus('waiting');
-      }
-    } catch (e) {
-      setErrorMsg(`${(e as Error).message}`);
-      setStatus('error');
-    }
-  }, [code, pid]);
-
-  const initEngine = (names: string[], players: { id: string }[]) => {
-    store.initGame(names);
-    const s = useGameStore.getState().gameState;
-    if (!s) return;
+  // 本地引擎初始化（给所有玩家一样的初始状态）
+  const initEngine = (names: string[], pl: { id: string }[]) => {
+    useGameStore.getState().initGame(names);
+    const s = useGameStore.getState().gameState!;
     const order: string[] = [];
-    for (let i = 0; i < players.length; i++) {
+    for (let i = 0; i < pl.length; i++) {
       const lid = s.playerOrder[i];
-      s.players[players[i].id] = s.players[lid];
-      s.players[players[i].id].id = players[i].id;
+      s.players[pl[i].id] = s.players[lid];
+      s.players[pl[i].id].id = pl[i].id;
       delete s.players[lid];
-      order.push(players[i].id);
+      order.push(pl[i].id);
     }
     s.playerOrder = order;
     s.gameId = gameIdRef.current;
     useGameStore.setState({ gameState: { ...s } });
   };
 
+  // 加载房间
   useEffect(() => {
-    loadRoom();
-  }, [loadRoom]);
+    (async () => {
+      const { data: g } = await supabase.from('games').select('id,status').eq('code', code).maybeSingle();
+      if (!g) return setErrorMsg('游戏不存在'), setStatus('error');
+      gameIdRef.current = g.id;
+      const { data: pl } = await supabase.from('players').select('id,display_name').eq('game_id', g.id).order('turn_order');
+      if (!pl?.length) return setErrorMsg('无玩家'), setStatus('error');
+      setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
+      if (g.status === 'playing') {
+        initEngine(pl.map(p => p.display_name), pl);
+        setStatus('playing');
+      } else {
+        setStatus('waiting');
+      }
+    })();
+  }, [code]);
 
-  // ==== 等待室：轮询检查游戏是否开始和新玩家加入 ====
+  // 等待室：每 2 秒检查
   useEffect(() => {
     if (status !== 'waiting') return;
-    const id = setInterval(async () => {
-      try {
-        const { data: game } = await supabase
-          .from('games').select('status').eq('id', gameIdRef.current).maybeSingle();
-        if (game?.status === 'playing') {
-          const { data: pl } = await supabase
-            .from('players').select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
-          if (pl && pl.length >= 2) {
-            initEngine(pl.map((x) => x.display_name), pl);
-            setStatus('playing');
-          }
-        }
-        // 检查新玩家
-        const { data: pl } = await supabase
-          .from('players').select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
-        if (pl) setJoinedPlayers(pl.map((x) => ({ id: x.id, name: x.display_name })));
-      } catch {} // eslint-disable-line
+    const i = setInterval(async () => {
+      const { data: g } = await supabase.from('games').select('status').eq('id', gameIdRef.current).maybeSingle();
+      const { data: pl } = await supabase.from('players').select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
+      if (pl) setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
+      if (g?.status === 'playing' && pl && pl.length >= 2) {
+        initEngine(pl.map(p => p.display_name), pl);
+        setStatus('playing');
+      }
     }, 2000);
-    return () => clearInterval(id);
-  }, [status]); // eslint-disable-line
+    return () => clearInterval(i);
+  }, [status]);
 
-  // ==== 游戏中：轮询同步操作 ====
+  // 写入操作到数据库（在 store 里 hook）
   useEffect(() => {
     if (status !== 'playing') return;
-
-    // 设置 local → remote 同步
-    store.setRemoteHandler(async (action, payload, playerId) => {
+    useGameStore.getState().setRemoteHandler(async (action, payload, playerId) => {
       if (playerId !== pid) return;
-      const p = useGameStore.getState().gameState?.players[playerId];
-      const { error } = await supabase.from('game_log').insert({
+      await supabase.from('game_log').insert({
         game_id: gameIdRef.current, player_id: playerId, action,
-        description: `${p?.name || '?'}: ${action}`, payload,
+        description: action, payload: payload as Record<string, unknown>,
       });
-      if (error) console.error('写入 game_log 失败:', error);
     });
+  }, [status, pid]);
 
-    // 轮询获取远程操作（每1.5秒）
-    const id = setInterval(async () => {
-      try {
-        const { data: logs } = await supabase
-          .from('game_log')
-          .select('id,action,payload,player_id')
-          .eq('game_id', gameIdRef.current)
-          .order('created_at', { ascending: true })
-          .limit(30);
-
-        if (logs && logs.length > 0) {
-          let changed = false;
-          const s = useGameStore.getState().gameState;
-          if (!s) return;
-
-          for (const log of logs) {
-            // 跳过已处理的
-            if (processedLogIds.current.has(log.id)) continue;
-            processedLogIds.current.add(log.id);
-            // 跳过自己的
-            if ((log.player_id as string) === pid) continue;
-            // 重放远程操作
-            applyRemoteAction(s, log.action as string, (log.payload || {}) as Record<string, unknown>, log.player_id as string);
-            changed = true;
-          }
-
-          if (changed) {
-            useGameStore.setState({ gameState: { ...s } });
-          }
-        }
-      } catch (e) { console.error('轮询失败:', e); }
+  // 轮询读取远程操作 + 重放
+  useEffect(() => {
+    if (status !== 'playing') return;
+    const seenIds = new Set<string>();
+    const i = setInterval(async () => {
+      const { data: logs } = await supabase
+        .from('game_log').select('*').eq('game_id', gameIdRef.current)
+        .order('created_at', { ascending: true }).limit(100);
+      if (!logs) return;
+      let changed = false;
+      const s = useGameStore.getState().gameState;
+      if (!s) return;
+      for (const log of logs) {
+        if (seenIds.has(log.id)) continue;
+        seenIds.add(log.id);
+        if ((log.player_id as string) === pid) continue;
+        replayAction(s, log.action as string, (log.payload as Record<string, unknown> || {}), log.player_id as string);
+        changed = true;
+      }
+      if (changed) useGameStore.setState({ gameState: { ...s } });
     }, 1500);
+    return () => clearInterval(i);
+  }, [status, pid]);
 
-    return () => {
-      clearInterval(id);
-      store.setRemoteHandler(null);
-    };
-  }, [status]); // eslint-disable-line
-
-  // ==== 房主开始游戏 ====
-  const handleStart = useCallback(async () => {
-    if (!gameIdRef.current) return;
-    const { error } = await supabase.from('games').update({ status: 'playing' }).eq('id', gameIdRef.current);
-    if (error) { setErrorMsg(error.message); return; }
-    initEngine(joinedPlayers.map((p) => p.name), joinedPlayers);
+  // 房主开始
+  const startGame = async () => {
+    await supabase.from('games').update({ status: 'playing' }).eq('id', gameIdRef.current);
+    initEngine(players.map(p => p.name), players);
     setStatus('playing');
-  }, [joinedPlayers]);
+  };
 
-  // ==== 渲染 ====
-  if (status === 'loading') return <CenterMsg icon="🎲" msg="加载中..." sub={`房间 ${code}`} />;
-  if (status === 'error') return <CenterMsg icon="😢" msg="加载失败" sub={errorMsg} extra={<BackBtn />} />;
+  if (status === 'loading') return <Center icon="🎲" msg="加载中..." sub={code} />;
+  if (status === 'error') return <Center icon="😢" msg="加载失败" sub={errorMsg} />;
 
   if (status === 'waiting') {
     return (
@@ -175,38 +126,21 @@ export default function GameRoomPage() {
         <div className="bg-white rounded-2xl p-8 shadow-md border border-slate-200 max-w-sm w-full text-center">
           <p className="text-4xl mb-4">⏳</p>
           <h2 className="text-xl font-bold text-slate-800 mb-2">等待玩家加入</h2>
-          <p className="text-sm text-slate-500 mb-1">
-            房间码: <span className="text-2xl font-bold tracking-widest text-blue-600">{code}</span>
-          </p>
-          <p className="text-xs text-slate-400 mb-6">把房间码发给朋友即可加入</p>
-
+          <p className="text-sm text-slate-500 mb-1">房间码: <span className="text-2xl font-bold tracking-widest text-blue-600">{code}</span></p>
+          <p className="text-xs text-slate-400 mb-6">把房间码发给朋友</p>
           <div className="space-y-2 mb-6 text-left">
-            {joinedPlayers.map((p, i) => (
+            {players.map((p, i) => (
               <div key={p.id} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
                 <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{i + 1}</span>
                 <span className="text-sm text-slate-700">{p.name}{i === 0 ? ' (房主)' : ''}</span>
               </div>
             ))}
-            {Array.from({ length: Math.max(0, 6 - joinedPlayers.length) }).map((_, i) => (
-              <div key={`empty-${i}`} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg opacity-40">
-                <span className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs">?</span>
-                <span className="text-sm text-slate-400">等待中...</span>
-              </div>
-            ))}
           </div>
-
-          {isHost && joinedPlayers.length >= 2 && (
-            <button onClick={handleStart} className="w-full py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600 active:scale-[0.98] transition-all">
-              🚀 开始游戏
-            </button>
+          {isHost && players.length >= 2 && (
+            <button onClick={startGame} className="w-full py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600">🚀 开始游戏</button>
           )}
-          {isHost && joinedPlayers.length < 2 && (
-            <p className="text-xs text-slate-400">至少需要2名玩家才能开始</p>
-          )}
-          {!isHost && (
-            <p className="text-sm text-slate-500 animate-pulse">等待房主开始游戏...</p>
-          )}
-          <a href="/lobby" className="block mt-4 text-xs text-slate-400 hover:text-red-400">退出房间</a>
+          {!isHost && <p className="text-sm text-slate-500 animate-pulse">等待房主开始游戏...</p>}
+          <a href="/lobby" className="block mt-4 text-xs text-slate-400 hover:text-red-400">退出</a>
         </div>
       </div>
     );
@@ -215,120 +149,74 @@ export default function GameRoomPage() {
   return <GameUI code={code} pid={pid} />;
 }
 
-// ==== 远程操作重放 ====
-function applyRemoteAction(
-  state: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>,
-  action: string, payload: Record<string, unknown>, playerId: string
-) {
-  const p = state.players[playerId];
+// 重放操作
+function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>, action: string, payload: Record<string, unknown>, playerId: string) {
+  const p = s.players[playerId];
   switch (action) {
     case 'PLACE_TILE': {
       const tid = payload.tileId as string;
-      if (!tid || !p) return;
-      if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid);
-      placeTile(state, tid);
+      if (tid && p) { if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid); Engine.placeTile(s, tid); }
       break;
     }
-    case 'FOUND_HOTEL': { const hid = payload.hotelId as string; if (hid) foundHotel(state, hid); break; }
-    case 'CHOOSE_ACQUIRER': { const sid = payload.survivorId as string; if (sid) chooseAcquirer(state, sid); break; }
-    case 'BUY_STOCK': { const hid = payload.hotelId as string; const qty = payload.quantity as number; if (hid && qty) buyStock(state, hid, qty); break; }
-    case 'FINISH_BUYING': completeStockBuying(state); break;
-    case 'MERGER_DECISION': makeMergerDecision(state, (payload.mergerIndex as number) ?? 0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number) || 0); break;
-    case 'FINISH_MERGERS': finishMergerDecisions(state); break;
-    case 'DECLARE_END': declareGameEnd(state); break;
+    case 'FOUND_HOTEL': { const h = payload.hotelId as string; if (h) Engine.foundHotel(s, h); break; }
+    case 'CHOOSE_ACQUIRER': { const h = payload.survivorId as string; if (h) Engine.chooseAcquirer(s, h); break; }
+    case 'BUY_STOCK': { Engine.buyStock(s, payload.hotelId as string, payload.quantity as number); break; }
+    case 'FINISH_BUYING': Engine.completeStockBuying(s); break;
+    case 'MERGER_DECISION': Engine.makeMergerDecision(s, (payload.mergerIndex as number) ?? 0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number) || 0); break;
+    case 'FINISH_MERGERS': Engine.finishMergerDecisions(s); break;
+    case 'DECLARE_END': Engine.declareGameEnd(s); break;
   }
 }
 
-// ==== 游戏界面 ====
 function GameUI({ code, pid }: { code: string; pid: string }) {
-  const gameState = useGameStore((s) => s.gameState);
-  const devMode = useGameStore((s) => s.devMode);
-  const toggleDevMode = useGameStore((s) => s.toggleDevMode);
-  const resetGame = useGameStore((s) => s.resetGame);
-  if (!gameState) return null;
-
-  const player = getCurrentPlayer(gameState);
-  const isMyTurn = player.id === pid;
-
+  const gs = useGameStore(s => s.gameState);
+  const dev = useGameStore(s => s.devMode);
+  if (!gs) return null;
+  const player = Engine.getCurrentPlayer(gs);
+  const myTurn = player.id === pid;
   return (
     <div className="flex-1 flex flex-col min-h-screen">
       <header className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">🏨 并购风云</h1>
           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">房间 {code}</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isMyTurn ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-            {isMyTurn ? '✅ 你的回合' : '⏳ 对方回合'}
-          </span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${myTurn ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>{myTurn ? '✅ 你的回合' : '⏳ 对方回合'}</span>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={toggleDevMode} className={`text-xs px-2.5 py-1 rounded-full font-medium ${devMode ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500'}`}>🛠️</button>
-          <a href="/lobby" onClick={resetGame} className="text-sm text-slate-500 hover:text-red-500">退出</a>
-        </div>
+        <a href="/lobby" className="text-sm text-slate-500 hover:text-red-500">退出</a>
       </header>
-
-      <HotelChoiceModal />
-      <AcquirerChoiceModal />
-      <MergerModal />
-
+      <HotelChoiceModal /><AcquirerChoiceModal /><MergerModal />
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-[1400px] mx-auto w-full">
         <div className="flex-1 flex flex-col gap-4">
-          {gameState.status === 'finished' ? <GameOverScreen /> : <GameBoard readOnly={!isMyTurn} />}
-          {devMode && <DevTilePicker />}
+          {gs.status === 'finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} />}
+          {dev && <DevTilePicker />}
           <div className="space-y-3">
-            {!devMode && <PlayerHand isMyTurn={isMyTurn} />}
-            {gameState.phase === 'buy_stocks' && !devMode && <StockMarket />}
-            <ActionPanel isMyTurn={isMyTurn} />
+            {!dev && <PlayerHand isMyTurn={myTurn} />}
+            {gs.phase === 'buy_stocks' && !dev && <StockMarket />}
+            <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>
-        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
-          <PlayerList />
-          <HotelPanel />
-          <GameLog />
-        </div>
+        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList /><HotelPanel /><GameLog /></div>
       </main>
     </div>
   );
 }
 
-function CenterMsg({ icon, msg, sub, extra }: { icon: string; msg: string; sub?: string; extra?: React.ReactNode }) {
-  return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-3xl mb-2 animate-bounce">{icon}</p>
-        <p className="text-slate-500">{msg}</p>
-        {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
-        {extra}
-      </div>
-    </div>
-  );
+function Center({ icon, msg, sub }: { icon: string; msg: string; sub?: string }) {
+  return <div className="flex-1 flex items-center justify-center"><div className="text-center"><p className="text-3xl mb-2 animate-bounce">{icon}</p><p className="text-slate-500">{msg}</p>{sub && <p className="text-xs text-slate-400 mt-1">房间 {sub}</p>}</div></div>;
 }
 
-function BackBtn() {
-  return <a href="/lobby" className="text-sm text-blue-500 hover:text-blue-600">返回大厅</a>;
-}
-
-function GameOverScreen() {
-  const gameState = useGameStore((s) => s.gameState);
-  const resetGame = useGameStore((s) => s.resetGame);
-  if (!gameState) return null;
-  const rankings = gameState.playerOrder
-    .map((pid) => ({ ...gameState.players[pid], tileCount: Object.values(gameState.tiles).filter((t) => t.placedBy === pid).length }))
-    .sort((a, b) => b.cash - a.cash);
+function OverScreen() {
+  const gs = useGameStore(s => s.gameState);
+  if (!gs) return null;
+  const ranks = gs.playerOrder.map(pid => ({ ...gs.players[pid] })).sort((a, b) => b.cash - a.cash);
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="bg-white rounded-2xl p-8 shadow-md border border-slate-200 max-w-md w-full text-center">
-        <p className="text-5xl mb-4">🏆</p>
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">游戏结束！</h2>
+        <p className="text-5xl mb-4">🏆</p><h2 className="text-2xl font-bold text-slate-800 mb-2">游戏结束！</h2>
         <div className="space-y-3 mb-6">
-          {rankings.map((p, i) => (
-            <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl ${i === 0 ? 'bg-amber-50 border border-amber-200' : 'bg-slate-50'}`}>
-              <span className="text-2xl">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
-              <span className="font-medium">{p.name}</span>
-              <span className="font-mono font-bold text-emerald-600">${p.cash.toLocaleString()}</span>
-            </div>
-          ))}
+          {ranks.map((p, i) => <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl ${i===0?'bg-amber-50 border border-amber-200':'bg-slate-50'}`}><span className="text-2xl">{i===0?'🥇':i===1?'🥈':'🥉'}</span><span className="font-medium">{p.name}</span><span className="font-mono font-bold text-emerald-600">${p.cash.toLocaleString()}</span></div>)}
         </div>
-        <a href="/lobby" onClick={resetGame} className="block w-full py-3 bg-blue-500 text-white rounded-xl font-semibold hover:bg-blue-600">返回大厅</a>
+        <a href="/lobby" className="block w-full py-3 bg-blue-500 text-white rounded-xl font-semibold hover:bg-blue-600">返回大厅</a>
       </div>
     </div>
   );
