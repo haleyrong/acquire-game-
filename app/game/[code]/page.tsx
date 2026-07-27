@@ -86,10 +86,11 @@ export default function GameRoomPage() {
         game_id: gameIdRef.current, player_id: playerId, action,
         description: action, payload,
       });
-      // 每次 FINISH_BUYING 保存完整快照
-      if (action === 'FINISH_BUYING') {
+      // 回合结束或并购完成时保存完整快照（防止刷新丢进度 / 并购后不同步）
+      if (action === 'FINISH_BUYING' || action === 'MERGER_DECISION') {
         const s = useGameStore.getState().gameState;
         if (s) {
+          // 如果并购已完成，phase 已变为 buy_stocks，保存的是正确的最终状态
           await supabase.from('games').update({
             state_snapshot: JSON.parse(JSON.stringify(s)),
           }).eq('id', gameIdRef.current);
@@ -98,10 +99,30 @@ export default function GameRoomPage() {
     });
   }, [status, pid]);
 
-  // 轮询 game_log 并重放
+  // 轮询 game_log 并重放（如果快照存在则优先加载快照）
   useEffect(() => {
     if (status !== 'playing') return;
     const i = setInterval(async () => {
+      // 先检查是否有新快照（最可靠）
+      const { data: latest } = await supabase.from('games')
+        .select('state_snapshot').eq('id', gameIdRef.current).single();
+
+      if (latest?.state_snapshot) {
+        const snap = latest.state_snapshot as Record<string, unknown>;
+        const snapshotPhase = snap.phase as string;
+        const localPhase = useGameStore.getState().gameState?.phase;
+
+        // 如果快照阶段比本地超前，直接加载快照（并购后不同步的兜底）
+        if (snapshotPhase === 'buy_stocks' && localPhase === 'merger_decisions') {
+          if (loadFromSnapshot(snap)) return;
+        }
+        // 如果本地是 place_tile 但快照是 buy_stocks，说明错过了操作，加载快照
+        if (snapshotPhase === 'buy_stocks' && localPhase === 'place_tile') {
+          if (loadFromSnapshot(snap)) return;
+        }
+      }
+
+      // 否则走操作重放
       const { data: logs } = await supabase.from('game_log')
         .select('*').eq('game_id', gameIdRef.current)
         .order('created_at', { ascending: true }).limit(100);
