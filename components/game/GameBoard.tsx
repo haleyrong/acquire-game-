@@ -1,0 +1,113 @@
+'use client';
+
+import { useGameStore } from '@/store/gameStore';
+import { getCurrentPlayer } from '@/lib/engine/GameEngine';
+import { BoardTile } from './BoardTile';
+
+export function GameBoard() {
+  const gameState = useGameStore((s) => s.gameState);
+  const selectedTileId = useGameStore((s) => s.selectedTileId);
+  const devMode = useGameStore((s) => s.devMode);
+  const selectTile = useGameStore((s) => s.selectTile);
+  const confirmPlaceTile = useGameStore((s) => s.confirmPlaceTile);
+
+  if (!gameState) return null;
+
+  const player = getCurrentPlayer(gameState);
+  const isMyTurn = gameState.phase === 'place_tile' || devMode;
+  const isChoosingHotel = gameState.phase === 'choose_hotel';
+
+  // 计算需要高亮的 pending 板块
+  const pendingTileIds = new Set<string>();
+  if (gameState.pendingHotelFounding) {
+    pendingTileIds.add(gameState.pendingHotelFounding.placedTileId);
+    gameState.pendingHotelFounding.adjacentTileIds.forEach((id) =>
+      pendingTileIds.add(id)
+    );
+  }
+
+  // 构建 9 行 × 12 列的网格
+  const rows = [];
+  for (let row = 1; row <= 9; row++) {
+    const cells = [];
+    for (let col = 1; col <= 12; col++) {
+      const tile = Object.values(gameState.tiles).find(
+        (t) => t.position.row === row && t.position.col === col
+      );
+      if (tile) {
+        const inHand = devMode
+          ? !tile.placed // dev模式：所有未放置板块都算"在手"
+          : player.handTileIds.includes(tile.id);
+
+        cells.push(
+          <BoardTile
+            key={tile.id}
+            tile={tile}
+            hotel={tile.hotelId ? gameState.hotels[tile.hotelId] : null}
+            isInHand={inHand}
+            isSelected={selectedTileId === tile.id}
+            isPending={isChoosingHotel && pendingTileIds.has(tile.id)}
+            isMyTurn={isMyTurn}
+            devMode={devMode}
+            onSelect={() => selectTile(tile.id)}
+            onPlace={() => confirmPlaceTile()}
+          />
+        );
+      }
+    }
+    rows.push(
+      <div key={row} className="flex gap-0.5">
+        {cells}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-200 rounded-xl p-3 shadow-inner">
+      {/* 列标签 */}
+      <div className="flex gap-0.5 mb-1 ml-8">
+        {Array.from({ length: 12 }, (_, i) => (
+          <div
+            key={i}
+            className="w-10 h-5 flex items-center justify-center text-xs text-slate-500 font-medium"
+          >
+            {i + 1}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex">
+        {/* 行标签 */}
+        <div className="flex flex-col gap-0.5 mr-1">
+          {Array.from({ length: 9 }, (_, i) => (
+            <div
+              key={i}
+              className="w-7 h-10 flex items-center justify-center text-xs text-slate-500 font-medium"
+            >
+              {String.fromCharCode(65 + i)}
+            </div>
+          ))}
+        </div>
+
+        {/* 网格 */}
+        <div className="flex flex-col gap-0.5">{rows}</div>
+      </div>
+
+      {/* 图例 */}
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="text-slate-500">图例：</span>
+        {Object.values(gameState.hotels)
+          .filter((h) => h.isActive)
+          .map((h) => (
+            <span key={h.id} className="flex items-center gap-1">
+              <span
+                className="w-3 h-3 rounded-sm inline-block"
+                style={{ backgroundColor: h.color }}
+              />
+              {h.name} ({h.size}块)
+            </span>
+          ))}
+      </div>
+    </div>
+  );
+}
