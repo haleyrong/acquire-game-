@@ -4,7 +4,7 @@ import { useGameStore } from '@/store/gameStore';
 import { getCurrentPlayer } from '@/lib/engine/GameEngine';
 import { BoardTile } from './BoardTile';
 
-export function GameBoard({ readOnly = false }: { readOnly?: boolean }) {
+export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: boolean; localPlayerId?: string }) {
   const gameState = useGameStore((s) => s.gameState);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
   const devMode = useGameStore((s) => s.devMode);
@@ -13,7 +13,9 @@ export function GameBoard({ readOnly = false }: { readOnly?: boolean }) {
 
   if (!gameState) return null;
 
-  const player = getCurrentPlayer(gameState);
+  // 只显示本地玩家的手牌，不显示别人的
+  const player = localPlayerId ? gameState.players[localPlayerId] : getCurrentPlayer(gameState);
+  if (!player) return null;
   const isMyTurn = (!readOnly && gameState.phase === 'place_tile') || devMode;
   const isChoosingHotel = gameState.phase === 'choose_hotel';
 

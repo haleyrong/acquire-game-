@@ -175,33 +175,54 @@ export default function GameRoomPage() {
 function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>, action: string, payload: Record<string, unknown>, playerId: string) {
   if (!s.players[playerId]) return;
 
-  // 保存当前回合状态，切换为操作者
-  const savedIndex = s.currentPlayerIndex;
-  const savedPhase = s.phase;
-  const remoteIndex = s.playerOrder.indexOf(playerId);
-  if (remoteIndex >= 0) {
-    s.currentPlayerIndex = remoteIndex;
-    // 临时切换 phase 让引擎函数不拦截
-    s.phase = (action === 'FINISH_BUYING') ? 'buy_stocks' : 'place_tile';
-  }
+  // 重放时绝不切换 currentPlayerIndex，而是直接手动操作目标玩家的数据
+  const p = s.players[playerId];
 
   try {
     switch (action) {
       case 'PLACE_TILE': {
         const tid = payload.tileId as string;
         if (tid) {
-          const p = s.players[playerId];
-          if (p && !p.handTileIds.includes(tid)) p.handTileIds.push(tid);
+          // 只操作目标玩家手牌，不涉及 currentPlayerIndex
+          if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid);
+          // 临时切换 index 给引擎用，操作完立即恢复
+          const savedIdx = s.currentPlayerIndex;
+          s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
           Engine.placeTile(s, tid);
+          s.currentPlayerIndex = savedIdx;
         }
         break;
       }
-      case 'FOUND_HOTEL': { const h = payload.hotelId as string; if (h) Engine.foundHotel(s, h); break; }
-      case 'CHOOSE_ACQUIRER': { const h = payload.survivorId as string; if (h) Engine.chooseAcquirer(s, h); break; }
-      case 'BUY_STOCK': { Engine.buyStock(s, payload.hotelId as string, payload.quantity as number); break; }
+      case 'FOUND_HOTEL': {
+        const hid = payload.hotelId as string;
+        if (hid) {
+          const savedIdx = s.currentPlayerIndex;
+          s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
+          Engine.foundHotel(s, hid);
+          s.currentPlayerIndex = savedIdx;
+        }
+        break;
+      }
+      case 'CHOOSE_ACQUIRER': {
+        const hid = payload.survivorId as string;
+        if (hid) {
+          const savedIdx = s.currentPlayerIndex;
+          s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
+          Engine.chooseAcquirer(s, hid);
+          s.currentPlayerIndex = savedIdx;
+        }
+        break;
+      }
+      case 'BUY_STOCK': {
+        const savedIdx = s.currentPlayerIndex;
+        s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
+        Engine.buyStock(s, payload.hotelId as string, payload.quantity as number);
+        s.currentPlayerIndex = savedIdx;
+        break;
+      }
       case 'FINISH_BUYING': {
         Engine.drawSpecificTile(s, playerId, payload.drawnTileId as string);
-        // 手动推进回合
+        // 推进到下一个玩家
         const order = s.playerOrder;
         const nextIdx = (order.indexOf(playerId) + 1) % order.length;
         s.currentPlayerIndex = nextIdx;
@@ -209,16 +230,14 @@ function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['g
         s.stocksBoughtThisTurn = 0;
         break;
       }
-      case 'MERGER_DECISION': Engine.makeMergerDecision(s, (payload.mergerIndex as number)??0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number)||0); break;
-      case 'DECLARE_END': Engine.declareGameEnd(s); break;
+      case 'MERGER_DECISION':
+        Engine.makeMergerDecision(s, (payload.mergerIndex as number)??0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number)||0);
+        break;
+      case 'DECLARE_END':
+        Engine.declareGameEnd(s);
+        break;
     }
   } catch(e) { console.error('重放失败:', action, e); }
-
-  // 恢复阶段（除非 FINISH_BUYING 已经推进了回合）
-  if (action !== 'FINISH_BUYING') {
-    s.currentPlayerIndex = savedIndex;
-    s.phase = savedPhase;
-  }
 }
 
 function GameUI({ code, pid }: { code: string; pid: string }) {
@@ -240,7 +259,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
       <HotelChoiceModal /><AcquirerChoiceModal /><MergerModal />
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-[1400px] mx-auto w-full">
         <div className="flex-1 flex flex-col gap-4">
-          {gs.status==='finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} />}
+          {gs.status==='finished' ? <OverScreen /> : <GameBoard readOnly={!myTurn} localPlayerId={pid} />}
           {dev && <DevTilePicker />}
           <div className="space-y-3">
             {!dev && <PlayerHand isMyTurn={myTurn} localPlayerId={pid} />}
