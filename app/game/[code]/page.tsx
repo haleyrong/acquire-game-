@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useGameStore } from '@/store/gameStore';
 import { supabase } from '@/lib/supabase/client';
@@ -22,17 +22,30 @@ export default function GameRoomPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [players, setPlayers] = useState<{ id: string; name: string }[]>([]);
   const gameIdRef = useRef('');
-  const seenLogIds = useRef(new Set<string>());
+  const localSnapshotVer = useRef(0); // 本地版本号，比对是否要更新
 
-  // 从 JSON 快照加载游戏状态
-  const loadFromSnapshot = (snapshot: Record<string, unknown>) => {
-    const s = snapshot as unknown as ReturnType<typeof useGameStore.getState>['gameState'];
+  // === 快照加载 ===
+  const loadSnapshot = useCallback((snap: Record<string, unknown>, ver: number) => {
+    if (ver <= localSnapshotVer.current) return false;
+    const s = snap as unknown as ReturnType<typeof useGameStore.getState>['gameState'];
     if (!s) return false;
-    useGameStore.setState({ gameState: s });
+    useGameStore.setState({ gameState: s, selectedTileId: null });
+    localSnapshotVer.current = ver;
     return true;
-  };
+  }, []);
 
-  // 加载房间
+  // === 保存快照 ===
+  const saveSnapshot = useCallback(async () => {
+    const s = useGameStore.getState().gameState;
+    if (!s || !gameIdRef.current) return;
+    const newVer = localSnapshotVer.current + 1;
+    localSnapshotVer.current = newVer;
+    const snap = JSON.parse(JSON.stringify(s));
+    snap._ver = newVer;
+    await supabase.from('games').update({ state_snapshot: snap }).eq('id', gameIdRef.current);
+  }, []);
+
+  // === 加载房间 ===
   useEffect(() => {
     (async () => {
       const { data: g } = await supabase.from('games').select('id,status,state_snapshot')
@@ -45,20 +58,16 @@ export default function GameRoomPage() {
       setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
 
       if (g.status === 'playing' && g.state_snapshot) {
-        // 从快照加载
-        if (loadFromSnapshot(g.state_snapshot as Record<string, unknown>)) {
-          setStatus('playing');
-        } else {
-          setErrorMsg('快照加载失败');
-          setStatus('error');
-        }
+        const snap = g.state_snapshot as Record<string, unknown>;
+        loadSnapshot(snap, (snap._ver as number) || 0);
+        setStatus('playing');
       } else {
         setStatus('waiting');
       }
     })();
-  }, [code]);
+  }, [code, loadSnapshot]);
 
-  // 等待室轮询
+  // === 等待室轮询 ===
   useEffect(() => {
     if (status !== 'waiting') return;
     const i = setInterval(async () => {
@@ -67,89 +76,45 @@ export default function GameRoomPage() {
       const { data: pl } = await supabase.from('players')
         .select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
       if (pl) setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
-      if (g?.status === 'playing' && g.state_snapshot && pl && pl.length >= 2) {
-        if (loadFromSnapshot(g.state_snapshot as Record<string, unknown>)) {
-          setStatus('playing');
-        }
+      if (g?.status === 'playing' && g.state_snapshot && pl?.length) {
+        const snap = g.state_snapshot as Record<string, unknown>;
+        loadSnapshot(snap, (snap._ver as number) || 0);
+        setStatus('playing');
       }
     }, 2000);
     return () => clearInterval(i);
-  }, [status]);
+  }, [status, loadSnapshot]);
 
-  // 本地操作写入 game_log
+  // === 每步操作后自动存快照 ===
   useEffect(() => {
     if (status !== 'playing') return;
-    const store = useGameStore.getState();
-    store.setRemoteHandler(async (action, payload, playerId) => {
+    useGameStore.getState().setRemoteHandler(async (_action, _payload, playerId) => {
       if (playerId !== pid) return;
-      await supabase.from('game_log').insert({
-        game_id: gameIdRef.current, player_id: playerId, action,
-        description: action, payload,
-      });
-      // 回合结束或并购完成时保存完整快照（防止刷新丢进度 / 并购后不同步）
-      if (action === 'FINISH_BUYING' || action === 'MERGER_DECISION') {
-        const s = useGameStore.getState().gameState;
-        if (s) {
-          // 如果并购已完成，phase 已变为 buy_stocks，保存的是正确的最终状态
-          await supabase.from('games').update({
-            state_snapshot: JSON.parse(JSON.stringify(s)),
-          }).eq('id', gameIdRef.current);
-        }
-      }
+      await saveSnapshot();
     });
-  }, [status, pid]);
+  }, [status, pid, saveSnapshot]);
 
-  // 轮询 game_log 并重放（如果快照存在则优先加载快照）
+  // === 轮询快照（纯快照，不重放） ===
   useEffect(() => {
     if (status !== 'playing') return;
     const i = setInterval(async () => {
-      // 先检查是否有新快照（最可靠）
-      const { data: latest } = await supabase.from('games')
+      const { data: g } = await supabase.from('games')
         .select('state_snapshot').eq('id', gameIdRef.current).single();
-
-      if (latest?.state_snapshot) {
-        const snap = latest.state_snapshot as Record<string, unknown>;
-        const snapshotPhase = snap.phase as string;
-        const localPhase = useGameStore.getState().gameState?.phase;
-
-        // 如果快照阶段比本地超前，直接加载快照（并购后不同步的兜底）
-        if (snapshotPhase === 'buy_stocks' && localPhase === 'merger_decisions') {
-          if (loadFromSnapshot(snap)) return;
-        }
-        // 如果本地是 place_tile 但快照是 buy_stocks，说明错过了操作，加载快照
-        if (snapshotPhase === 'buy_stocks' && localPhase === 'place_tile') {
-          if (loadFromSnapshot(snap)) return;
-        }
+      if (!g?.state_snapshot) return;
+      const snap = g.state_snapshot as Record<string, unknown>;
+      const remoteVer = (snap._ver as number) || 0;
+      if (remoteVer > localSnapshotVer.current) {
+        loadSnapshot(snap, remoteVer);
       }
-
-      // 否则走操作重放
-      const { data: logs } = await supabase.from('game_log')
-        .select('*').eq('game_id', gameIdRef.current)
-        .order('created_at', { ascending: true }).limit(100);
-      if (!logs?.length) return;
-
-      let changed = false;
-      const s = useGameStore.getState().gameState;
-      if (!s) return;
-
-      for (const log of logs) {
-        if (seenLogIds.current.has(log.id)) continue;
-        seenLogIds.current.add(log.id);
-        if (log.player_id === pid) continue;
-        replayAction(s, log.action, (log.payload || {}) as Record<string, unknown>, log.player_id);
-        changed = true;
-      }
-      if (changed) useGameStore.setState({ gameState: { ...s } });
     }, 1500);
     return () => clearInterval(i);
-  }, [status, pid]);
+  }, [status, pid, loadSnapshot]);
 
-  // 房主开始游戏：创建状态 + 存快照
+  // === 房主开始 ===
   const startGame = async () => {
     const names = players.map(p => p.name);
     useGameStore.getState().initGame(names);
     const s = useGameStore.getState().gameState!;
-    // 用数据库 ID 替换本地 ID
     const order: string[] = [];
     for (let i = 0; i < players.length; i++) {
       const lid = s.playerOrder[i];
@@ -161,13 +126,10 @@ export default function GameRoomPage() {
     s.playerOrder = order;
     s.gameId = gameIdRef.current;
     useGameStore.setState({ gameState: { ...s } });
-
-    // 存快照到数据库
-    await supabase.from('games').update({
-      status: 'playing',
-      state_snapshot: JSON.parse(JSON.stringify(s)),
-    }).eq('id', gameIdRef.current);
-
+    localSnapshotVer.current = 1;
+    const snap = JSON.parse(JSON.stringify(s));
+    snap._ver = 1;
+    await supabase.from('games').update({ status: 'playing', state_snapshot: snap }).eq('id', gameIdRef.current);
     setStatus('playing');
   };
 
@@ -200,74 +162,6 @@ export default function GameRoomPage() {
   }
 
   return <GameUI code={code} pid={pid} />;
-}
-
-function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['gameState']>, action: string, payload: Record<string, unknown>, playerId: string) {
-  if (!s.players[playerId]) return;
-
-  // 重放时绝不切换 currentPlayerIndex，而是直接手动操作目标玩家的数据
-  const p = s.players[playerId];
-
-  try {
-    switch (action) {
-      case 'PLACE_TILE': {
-        const tid = payload.tileId as string;
-        if (tid) {
-          // 只操作目标玩家手牌，不涉及 currentPlayerIndex
-          if (!p.handTileIds.includes(tid)) p.handTileIds.push(tid);
-          // 临时切换 index 给引擎用，操作完立即恢复
-          const savedIdx = s.currentPlayerIndex;
-          s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
-          Engine.placeTile(s, tid);
-          s.currentPlayerIndex = savedIdx;
-        }
-        break;
-      }
-      case 'FOUND_HOTEL': {
-        const hid = payload.hotelId as string;
-        if (hid) {
-          const savedIdx = s.currentPlayerIndex;
-          s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
-          Engine.foundHotel(s, hid);
-          s.currentPlayerIndex = savedIdx;
-        }
-        break;
-      }
-      case 'CHOOSE_ACQUIRER': {
-        const hid = payload.survivorId as string;
-        if (hid) {
-          const savedIdx = s.currentPlayerIndex;
-          s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
-          Engine.chooseAcquirer(s, hid);
-          s.currentPlayerIndex = savedIdx;
-        }
-        break;
-      }
-      case 'BUY_STOCK': {
-        const savedIdx = s.currentPlayerIndex;
-        s.currentPlayerIndex = s.playerOrder.indexOf(playerId);
-        Engine.buyStock(s, payload.hotelId as string, payload.quantity as number);
-        s.currentPlayerIndex = savedIdx;
-        break;
-      }
-      case 'FINISH_BUYING': {
-        Engine.drawSpecificTile(s, playerId, payload.drawnTileId as string);
-        // 推进到下一个玩家
-        const order = s.playerOrder;
-        const nextIdx = (order.indexOf(playerId) + 1) % order.length;
-        s.currentPlayerIndex = nextIdx;
-        s.phase = 'place_tile';
-        s.stocksBoughtThisTurn = 0;
-        break;
-      }
-      case 'MERGER_DECISION':
-        Engine.makeMergerDecision(s, (payload.mergerIndex as number)??0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number)||0);
-        break;
-      case 'DECLARE_END':
-        Engine.declareGameEnd(s);
-        break;
-    }
-  } catch(e) { console.error('重放失败:', action, e); }
 }
 
 function GameUI({ code, pid }: { code: string; pid: string }) {
