@@ -920,6 +920,15 @@ export function drawTile(state: GameState): string | null {
   return drawn.id;
 }
 
+/** 指定牌补牌（用于远程重放，保证两张客户端抽到同一张牌） */
+export function drawSpecificTile(state: GameState, playerId: string, tileId: string): boolean {
+  const player = state.players[playerId];
+  if (!player) return false;
+  if (player.handTileIds.includes(tileId)) return true; // 已经有了
+  player.handTileIds.push(tileId);
+  return true;
+}
+
 // ---- 终局检测 ----
 
 /** 检查游戏是否结束 */

@@ -191,12 +191,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!gameState || gameState.phase !== 'buy_stocks') return;
 
     const player = getCurrentPlayer(gameState);
-    completeStockBuying(gameState);
+    const drawnId = completeStockBuying(gameState);
 
-    if (remoteHandler) {
+    if (remoteHandler && drawnId) {
       remoteHandler('FINISH_BUYING', {
-        nextPlayerIndex: gameState.currentPlayerIndex,
-        nextPhase: gameState.phase,
+        playerId: player.id,
+        drawnTileId: drawnId,
       }, player.id);
     }
 

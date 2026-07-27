@@ -184,7 +184,11 @@ function replayAction(s: NonNullable<ReturnType<typeof useGameStore.getState>['g
       case 'FOUND_HOTEL': { const h = payload.hotelId as string; if (h) Engine.foundHotel(s, h); break; }
       case 'CHOOSE_ACQUIRER': { const h = payload.survivorId as string; if (h) Engine.chooseAcquirer(s, h); break; }
       case 'BUY_STOCK': { Engine.buyStock(s, payload.hotelId as string, payload.quantity as number); break; }
-      case 'FINISH_BUYING': Engine.completeStockBuying(s); break;
+      case 'FINISH_BUYING':
+        // 先用指定牌补牌，再结束回合
+        Engine.drawSpecificTile(s, playerId, payload.drawnTileId as string);
+        Engine.nextTurn(s);
+        break;
       case 'MERGER_DECISION': Engine.makeMergerDecision(s, (payload.mergerIndex as number)??0, playerId, payload.decision as 'sell'|'trade'|'hold', (payload.quantity as number)||0); break;
       case 'DECLARE_END': Engine.declareGameEnd(s); break;
     }
