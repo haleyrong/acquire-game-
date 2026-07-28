@@ -11,7 +11,7 @@ export function PlayerList({ localPlayerId }: { localPlayerId?: string }) {
   const currentPlayer = getCurrentPlayer(gameState);
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+    <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
       <h3 className="text-base font-semibold text-slate-700 mb-3">👥 玩家</h3>
       <div className="space-y-2">
         {gameState.playerOrder.map((playerId, index) => {

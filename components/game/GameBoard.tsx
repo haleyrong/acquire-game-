@@ -83,7 +83,7 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
   }
 
   return (
-    <div className="bg-slate-200 rounded-xl p-3 shadow-inner">
+    <div className="bg-card/80 backdrop-blur rounded-2xl p-4 shadow-lg border border-card-border/50">
       {/* 列标签 */}
       <div className="flex gap-0.5 mb-1 ml-8">
         {Array.from({ length: 12 }, (_, i) => (
@@ -121,10 +121,10 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
           .map((h) => (
             <span key={h.id} className="flex items-center gap-1">
               <span
-                className="w-3 h-3 rounded-sm inline-block"
+                className="w-3 h-3 rounded-sm inline-block shrink-0"
                 style={{ backgroundColor: h.color }}
               />
-              {h.name} ({h.size}块)
+              {h.icon} {h.name} ({h.size}块)
             </span>
           ))}
       </div>

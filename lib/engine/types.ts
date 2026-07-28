@@ -24,12 +24,13 @@ export interface Tile {
 
 export type HotelTier = 'luxury' | 'standard' | 'economy';
 
-/** 酒店连锁 */
+/** 企业连锁 */
 export interface Hotel {
   id: string;
   name: string;
   tier: HotelTier;
   color: string; // 显示颜色（hex）
+  icon: string; // emoji 图标
   size: number; // 已放置板块数
   isSafe: boolean; // 是否安全（>= 11块）
   isActive: boolean; // 是否已建立
@@ -42,7 +43,8 @@ export interface HotelConfig {
   name: string;
   tier: HotelTier;
   color: string;
-  minFoundingSize: number; // 建立所需的最小相连板块数（经典模式：全部=2）
+  minFoundingSize: number;
+  icon: string;
 }
 
 // ---- 玩家 ----

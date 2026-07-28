@@ -1,12 +1,27 @@
 @import "tailwindcss";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #1e293b;
+@theme inline {
+  --color-felt: #1a5c2a;
+  --color-felt-dark: #144822;
+  --color-card: #FFFEF7;
+  --color-card-border: #D4C5A0;
+  --color-gold: #C4960A;
+  --color-gold-light: #F0D060;
+  --color-text-warm: #2D2418;
+  --color-text-soft: #5C4E3A;
+  --color-surface: rgba(255, 254, 247, 0.95);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+@layer base {
+  body {
+    background: #1a5c2a;
+    background-image:
+      linear-gradient(135deg, #144822 0%, #1a5c2a 50%, #1e6b30 100%),
+      radial-gradient(ellipse at 20% 50%, rgba(255,255,255,0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 50%, rgba(255,255,255,0.03) 0%, transparent 50%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    color: #2D2418;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+  }
 }

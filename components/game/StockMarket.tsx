@@ -19,7 +19,7 @@ export function StockMarket({ isMyTurn = true }: { isMyTurn?: boolean }) {
     const myHoldings = player.stocks.filter(s => s.quantity > 0);
     if (myHoldings.length === 0) return null;
     return (
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+      <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
         <h3 className="text-sm font-semibold text-slate-700 mb-2">💰 你的持股</h3>
         <div className="space-y-1">
           {myHoldings.map(s => {
@@ -71,7 +71,7 @@ export function StockMarket({ isMyTurn = true }: { isMyTurn?: boolean }) {
   };
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+    <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-slate-700">
           💰 购买股票
@@ -113,7 +113,7 @@ export function StockMarket({ isMyTurn = true }: { isMyTurn?: boolean }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-medium text-slate-700 truncate">
-                    {hotel.name}
+                    {hotel.icon} {hotel.name}
                   </span>
                   {hotel.isSafe && (
                     <span className="text-[9px] bg-amber-100 text-amber-600 px-1 rounded">安全</span>

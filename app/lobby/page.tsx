@@ -50,7 +50,7 @@ export default function LobbyPage() {
           <p className="text-slate-500">经典地产投资桌游 · 在线联机</p>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+        <div className="bg-surface backdrop-blur rounded-2xl p-6 shadow-md border border-card-border/50 space-y-4">
           <h2 className="text-lg font-semibold text-slate-700">🌐 在线联机</h2>
 
           {/* 名字输入 */}
@@ -104,7 +104,7 @@ export default function LobbyPage() {
           )}
         </div>
 
-        <div className="mt-4 bg-white rounded-2xl p-4 shadow-sm border border-slate-200 text-center">
+        <div className="mt-4 bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50 text-center">
           <p className="text-xs text-slate-400 mb-2">暂时没法联网？试试本机双人模式</p>
           <a href="/" className="text-sm text-blue-500 hover:text-blue-600 font-medium">🖥️ 本地热座模式 →</a>
         </div>

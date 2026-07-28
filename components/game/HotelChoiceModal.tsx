@@ -22,7 +22,8 @@ export function HotelChoiceModal({ localPlayerId, isMyTurn }: { localPlayerId?: 
     .map((hotel) => {
       const hc = gameState.config.hotels.find((c) => c.name === hotel.name);
       const minSize = hc?.minFoundingSize ?? 2;
-      return { hotel, minSize, eligible: totalSize >= minSize };
+      const icon = hc?.icon || '🏨';
+      return { hotel, minSize, icon, eligible: totalSize >= minSize };
     });
 
   const eligible = hotelOptions.filter((o) => o.eligible);
@@ -59,10 +60,12 @@ export function HotelChoiceModal({ localPlayerId, isMyTurn }: { localPlayerId?: 
         </div>
 
         <div className="space-y-2 mb-4">
-          {eligible.map(({ hotel, minSize }) => (
+          {eligible.map(({ hotel, minSize, icon }) => (
             <button key={hotel.id} onClick={() => confirmFoundHotel(hotel.id)}
               className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 active:scale-[0.98] transition-all text-left">
-              <div className="w-8 h-8 rounded-lg shrink-0 shadow-sm" style={{ backgroundColor: hotel.color }} />
+              <div className="w-10 h-10 rounded-lg shrink-0 shadow-sm flex items-center justify-center text-xl" style={{ backgroundColor: hotel.color }}>
+                {icon}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm text-slate-700">{hotel.name}</div>
                 <div className="text-xs text-slate-500">{hotel.tier === 'luxury' ? '奢侈级' : hotel.tier === 'standard' ? '标准级' : '经济级'} · 最低 {minSize} 块</div>

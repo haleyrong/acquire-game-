@@ -172,7 +172,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
   const myTurn = player.id === pid;
   return (
     <div className="flex-1 flex flex-col min-h-screen">
-      <header className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0">
+      <header className="bg-surface/90 backdrop-blur border-b border-card-border/30 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">🏨 并购风云</h1>
           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">房间 {code}</span>
@@ -204,7 +204,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
 function WaitOverlay({ msg }: { msg: string }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 pointer-events-none">
-      <div className="bg-white/90 backdrop-blur rounded-2xl px-6 py-3 shadow-lg text-sm text-slate-500 animate-pulse">
+      <div className="bg-surface/95 backdrop-blur rounded-2xl px-6 py-3 shadow-lg text-sm text-slate-500 animate-pulse">
         ⏳ {msg}
       </div>
     </div>

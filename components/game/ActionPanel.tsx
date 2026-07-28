@@ -20,7 +20,7 @@ export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
   const phase = gameState.phase;
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+    <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
       {/* 消息提示 */}
       {message && (
         <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
@@ -145,7 +145,7 @@ export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
         {devMode && phase === 'place_tile' && '在下方板块选择器中点选板块，再点棋盘空位放置'}
         {!devMode && isMyTurn && phase === 'place_tile' && '点击手牌选择板块，再点一次放置到棋盘'}
         {canEndGame() && phase === 'place_tile' && isMyTurn && ' ⚡ 已满足结束条件，可以宣布游戏结束！'}
-        {phase === 'choose_hotel' && '请在弹窗中选择要激活的酒店连锁'}
+        {phase === 'choose_hotel' && '请在弹窗中选择要激活的企业连锁'}
         {phase === 'choose_acquirer' && '请在弹窗中选择并购方'}
         {phase === 'merger_decisions' && '并购正在进行，请在弹窗中做出决策'}
         {!devMode && phase === 'buy_stocks' &&

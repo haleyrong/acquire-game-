@@ -22,7 +22,7 @@ export function PlayerHand({ isMyTurn = true, localPlayerId }: { isMyTurn?: bool
   if (handTiles.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+    <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
       <h3 className="text-sm font-semibold text-slate-700 mb-2">
         📋 手牌（{handTiles.length}/6）
       </h3>

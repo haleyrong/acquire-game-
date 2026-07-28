@@ -19,18 +19,18 @@ export const classicConfig: GameConfig = {
   bonusForFoundingHotel: 1,
 
   hotels: [
-    // Luxury (2家) — 需要3块相连才能建立
-    { name: '寰宇国际', tier: 'luxury', color: '#E53E3E', minFoundingSize: 3 },
-    { name: '帝国集团', tier: 'luxury', color: '#DD6B20', minFoundingSize: 3 },
+    // Luxury (2家)
+    { name: '寰宇国际', tier: 'luxury', color: '#E53E3E', minFoundingSize: 3, icon: '🏰' },
+    { name: '帝国集团', tier: 'luxury', color: '#DD6B20', minFoundingSize: 3, icon: '👑' },
 
-    // Standard (3家) — 需要2块相连即可建立
-    { name: '妮妮美术馆', tier: 'standard', color: '#38A169', minFoundingSize: 2 },
-    { name: '包包厨房', tier: 'standard', color: '#3182CE', minFoundingSize: 2 },
-    { name: '大陆控股', tier: 'standard', color: '#805AD5', minFoundingSize: 2 },
+    // Standard (3家)
+    { name: '妮妮美术馆', tier: 'standard', color: '#38A169', minFoundingSize: 2, icon: '🎨' },
+    { name: '包包厨房', tier: 'standard', color: '#3182CE', minFoundingSize: 2, icon: '🍳' },
+    { name: '大陆控股', tier: 'standard', color: '#805AD5', minFoundingSize: 2, icon: '🏢' },
 
-    // Economy (2家) — 需要2块相连即可建立
-    { name: '卢克索', tier: 'economy', color: '#D69E2E', minFoundingSize: 2 },
-    { name: '高塔连锁', tier: 'economy', color: '#718096', minFoundingSize: 2 },
+    // Economy (2家)
+    { name: '卢克索', tier: 'economy', color: '#D69E2E', minFoundingSize: 2, icon: '🏪' },
+    { name: '高塔连锁', tier: 'economy', color: '#718096', minFoundingSize: 2, icon: '🗼' },
   ],
 };
 

@@ -97,6 +97,7 @@ export function createGame(
       name: hc.name,
       tier: hc.tier,
       color: hc.color,
+      icon: hc.icon || '🏨',
       size: 0,
       isSafe: false,
       isActive: false,

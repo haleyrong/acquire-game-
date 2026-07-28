@@ -11,8 +11,8 @@ export function HotelPanel() {
   const inactiveHotels = Object.values(gameState.hotels).filter((h) => !h.isActive);
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
-      <h3 className="text-base font-semibold text-slate-700 mb-3">🏨 酒店连锁</h3>
+    <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
+      <h3 className="text-base font-semibold text-slate-700 mb-3">🏨 企业连锁</h3>
 
       {activeHotels.length === 0 && (
         <p className="text-sm text-slate-400 mb-2">尚无酒店成立</p>
@@ -26,6 +26,7 @@ export function HotelPanel() {
             {/* 酒店名 + 颜色标记 */}
             <div className="flex items-center gap-2 mb-1">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: hotel.color }} />
+              <span className="text-base mr-1">{hotel.icon || '🏨'}</span>
               <span className="text-base font-semibold text-slate-700">{hotel.name}</span>
               <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">
                 {hotel.tier === 'luxury' ? '奢侈' : hotel.tier === 'standard' ? '标准' : '经济'}

@@ -12,7 +12,7 @@ export function RoundHistory() {
     : null;
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+    <div className="bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50">
       <h3 className="text-base font-semibold text-slate-700 mb-2">
         📊 上回合回顾（第 {latest.roundNumber} 回合）
       </h3>

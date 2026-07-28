@@ -40,7 +40,7 @@ export default function Home() {
           </div>
 
           {/* 开始表单 */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+          <div className="bg-surface backdrop-blur rounded-2xl p-6 shadow-md border border-card-border/50 space-y-4">
             <h2 className="text-lg font-semibold text-slate-700">开始新游戏</h2>
 
             <div>
@@ -87,12 +87,12 @@ export default function Home() {
           </div>
 
           {/* 规则简介 */}
-          <div className="mt-6 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+          <div className="mt-6 bg-surface backdrop-blur rounded-2xl p-6 shadow-md border border-card-border/50">
             <h3 className="text-sm font-semibold text-slate-700 mb-2">
               📖 游戏简介
             </h3>
             <ul className="text-xs text-slate-500 space-y-1">
-              <li>• 放置板块，建立或扩张酒店连锁</li>
+              <li>• 放置板块，建立或扩张企业连锁</li>
               <li>• 投资股票，等待酒店升值</li>
               <li>• 触发并购时可获得高额分红</li>
               <li>• 现金 + 股票总值最高者获胜</li>
@@ -100,7 +100,7 @@ export default function Home() {
           </div>
 
           {/* 在线模式入口 */}
-          <div className="mt-4 bg-white rounded-2xl p-4 shadow-sm border border-slate-200 text-center">
+          <div className="mt-4 bg-surface backdrop-blur rounded-2xl p-4 shadow-md border border-card-border/50 text-center">
             <p className="text-xs text-slate-400 mb-2">
               想和朋友远程对战？
             </p>
@@ -120,7 +120,7 @@ export default function Home() {
   return (
     <div className="flex-1 flex flex-col min-h-screen">
       {/* 顶栏 */}
-      <header className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0">
+      <header className="bg-surface/90 backdrop-blur border-b border-card-border/30 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">🏨 并购风云</h1>
           <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full">
@@ -208,7 +208,7 @@ function GameOverScreen() {
 
   return (
     <div className="flex-1 flex items-center justify-center p-8">
-      <div className="bg-white rounded-2xl p-8 shadow-md border border-slate-200 max-w-md w-full text-center">
+      <div className="bg-surface backdrop-blur rounded-2xl p-8 shadow-lg border border-card-border/50 max-w-md w-full text-center">
         <p className="text-5xl mb-4">🏆</p>
         <h2 className="text-2xl font-bold text-slate-800 mb-2">游戏结束！</h2>
         <p className="text-slate-500 mb-6">感谢参与</p>
