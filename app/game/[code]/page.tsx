@@ -7,8 +7,8 @@ import { supabase } from '@/lib/supabase/client';
 import * as Engine from '@/lib/engine/GameEngine';
 import {
   GameBoard, PlayerHand, PlayerList, HotelPanel, RoundHistory,
-  StockMarket, ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
-  MergerModal, DevTilePicker,
+  ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
+  MergerModal, DevTilePicker, BuyStockModal,
 } from '@/components/game';
 
 export default function GameRoomPage() {
@@ -167,11 +167,38 @@ export default function GameRoomPage() {
 function GameUI({ code, pid }: { code: string; pid: string }) {
   const gs = useGameStore(s => s.gameState);
   const dev = useGameStore(s => s.devMode);
+  const [showTurnToast, setShowTurnToast] = useState(false);
+  const prevTurnRef = useRef<string | null>(null);
+
   if (!gs) return null;
   const player = Engine.getCurrentPlayer(gs);
   const myTurn = player.id === pid;
+
+  // 检测回合切换到自己时弹出提示
+  useEffect(() => {
+    const turnKey = `${gs.currentPlayerIndex}-${gs.roundNumber}`;
+    if (myTurn && turnKey !== prevTurnRef.current) {
+      prevTurnRef.current = turnKey;
+      setShowTurnToast(true);
+      const t = setTimeout(() => setShowTurnToast(false), 1500);
+      return () => clearTimeout(t);
+    }
+    if (!myTurn) {
+      prevTurnRef.current = null;
+    }
+  }, [gs.currentPlayerIndex, gs.roundNumber, myTurn]);
+
   return (
     <div className="flex-1 flex flex-col min-h-screen">
+      {/* 轮到你的提示 */}
+      {showTurnToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div className="bg-green-500 text-white px-6 py-3 rounded-full shadow-xl text-lg font-bold">
+            🎯 到你了！
+          </div>
+        </div>
+      )}
+
       <header className="bg-surface/90 backdrop-blur border-b border-card-border/30 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">🏨 并购风云</h1>
@@ -184,6 +211,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
       {/* 只有自己回合才显示交互弹窗，其他人看到等待提示 */}
       {myTurn ? <HotelChoiceModal /> : gs.phase === 'choose_hotel' && <WaitOverlay msg="等待对手选择酒店..." />}
       {myTurn ? <AcquirerChoiceModal /> : gs.phase === 'choose_acquirer' && <WaitOverlay msg="等待对手选择并购方..." />}
+      {gs.phase === 'buy_stocks' && <BuyStockModal isMyTurn={myTurn} />}
       <MergerModal localPlayerId={pid} />
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-[1400px] mx-auto w-full">
         <div className="flex-1 flex flex-col gap-4">
@@ -191,7 +219,6 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
           {dev && <DevTilePicker />}
           <div className="space-y-3">
             {!dev && <PlayerHand isMyTurn={myTurn} localPlayerId={pid} />}
-            {gs.phase==='buy_stocks' && !dev && <StockMarket isMyTurn={myTurn} />}
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>

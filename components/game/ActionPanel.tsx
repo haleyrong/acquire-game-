@@ -8,7 +8,6 @@ export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
   const devMode = useGameStore((s) => s.devMode);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
   const confirmPlaceTile = useGameStore((s) => s.confirmPlaceTile);
-  const finishBuying = useGameStore((s) => s.finishBuying);
   const canEndGame = useGameStore((s) => s.canEndGame);
   const declareEnd = useGameStore((s) => s.declareEnd);
   const message = useGameStore((s) => s.message);
@@ -72,17 +71,7 @@ export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
         </div>
       </div>
 
-      {/* 不是自己回合 */}
-      {!isMyTurn && !devMode && phase !== 'game_over' && (
-        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
-          <p className="text-sm text-slate-500">⏳ 等待对手操作...</p>
-          <p className="text-xs text-slate-400 mt-1">
-            当前阶段：{phase === 'place_tile' ? '放置板块' : phase === 'buy_stocks' ? '购买股票' : phase === 'merger_decisions' ? '并购决策' : '操作中'}
-          </p>
-        </div>
-      )}
-
-      {/* 操作按钮（仅自己回合） */}
+      {/* 操作按钮（仅自己回合或开发者模式） */}
       {(isMyTurn || devMode) && (
       <div className="flex gap-2">
         {/* 放置板块阶段 */}
@@ -120,17 +109,6 @@ export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
           </>
         )}
 
-        {/* 购买股票阶段（dev模式不显示，因为自动跳过） */}
-        {phase === 'buy_stocks' && !devMode && (
-          <button
-            onClick={finishBuying}
-            className="w-full py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold
-                       hover:bg-emerald-600 active:scale-[0.98] transition-all shadow-sm"
-          >
-            ✅ 完成购买 · 补牌 · 结束回合
-          </button>
-        )}
-
         {/* 游戏结束 */}
         {phase === 'game_over' && (
           <div className="text-center w-full">
@@ -141,15 +119,13 @@ export function ActionPanel({ isMyTurn = true }: { isMyTurn?: boolean }) {
       )}
 
       <p className="text-xs text-slate-400 mt-2">
-        {!isMyTurn && !devMode && phase !== 'game_over' && '请等待对手完成操作，棋盘会自动更新'}
         {devMode && phase === 'place_tile' && '在下方板块选择器中点选板块，再点棋盘空位放置'}
         {!devMode && isMyTurn && phase === 'place_tile' && '点击手牌选择板块，再点一次放置到棋盘'}
         {canEndGame() && phase === 'place_tile' && isMyTurn && ' ⚡ 已满足结束条件，可以宣布游戏结束！'}
         {phase === 'choose_hotel' && '请在弹窗中选择要激活的企业连锁'}
         {phase === 'choose_acquirer' && '请在弹窗中选择并购方'}
         {phase === 'merger_decisions' && '并购正在进行，请在弹窗中做出决策'}
-        {!devMode && phase === 'buy_stocks' &&
-          `可购买 0~${gameState.config.maxBuyPerTurn - gameState.stocksBoughtThisTurn} 张股票（点击下方酒店选择数量）`}
+        {phase === 'buy_stocks' && '请在弹窗中购买股票'}
         {phase === 'game_over' && '感谢参与！'}
       </p>
     </div>

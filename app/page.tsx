@@ -1,19 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import {
   GameBoard,
   PlayerHand,
   PlayerList,
   HotelPanel,
-  StockMarket,
   ActionPanel,
   HotelChoiceModal,
   AcquirerChoiceModal,
   MergerModal,
   DevTilePicker,
   RoundHistory,
+  BuyStockModal,
 } from '@/components/game';
 
 export default function Home() {
@@ -22,6 +22,21 @@ export default function Home() {
   const initGame = useGameStore((s) => s.initGame);
   const resetGame = useGameStore((s) => s.resetGame);
   const toggleDevMode = useGameStore((s) => s.toggleDevMode);
+
+  const [showTurnToast, setShowTurnToast] = useState(false);
+  const prevTurnRef = useRef<string | null>(null);
+
+  // 回合切换提示
+  useEffect(() => {
+    if (!gameState) return;
+    const turnKey = `${gameState.currentPlayerIndex}-${gameState.roundNumber}`;
+    if (turnKey !== prevTurnRef.current) {
+      prevTurnRef.current = turnKey;
+      setShowTurnToast(true);
+      const t = setTimeout(() => setShowTurnToast(false), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [gameState?.currentPlayerIndex, gameState?.roundNumber]);
 
   const [player1Name, setPlayer1Name] = useState('玩家1');
   const [player2Name, setPlayer2Name] = useState('玩家2');
@@ -33,10 +48,11 @@ export default function Home() {
         <div className="w-full max-w-md">
           {/* 标题 */}
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-slate-800 mb-2">
+            <h1 className="text-5xl font-extrabold mb-3 tracking-wide text-amber-400"
+              style={{ textShadow: '0 2px 8px rgba(196,150,10,0.3)' }}>
               🏨 并购风云
             </h1>
-            <p className="text-slate-500">经典地产投资桌游 · 网页版</p>
+            <p className="text-amber-200/70 text-sm tracking-wider">经典地产投资桌游 · 网页版</p>
           </div>
 
           {/* 开始表单 */}
@@ -119,6 +135,15 @@ export default function Home() {
   // ---- 游戏界面 ----
   return (
     <div className="flex-1 flex flex-col min-h-screen">
+      {/* 轮到你的提示 */}
+      {showTurnToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div className="bg-green-500 text-white px-6 py-3 rounded-full shadow-xl text-lg font-bold">
+            🎯 到你了！
+          </div>
+        </div>
+      )}
+
       {/* 顶栏 */}
       <header className="bg-surface/90 backdrop-blur border-b border-card-border/30 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -153,6 +178,7 @@ export default function Home() {
       {/* 弹窗 */}
       <HotelChoiceModal />
       <AcquirerChoiceModal />
+      {gameState.phase === 'buy_stocks' && <BuyStockModal isMyTurn={true} />}
       <MergerModal />
 
       {/* 主体 */}
@@ -171,7 +197,6 @@ export default function Home() {
           {/* 底部：手牌 + 股票市场 + 操作 */}
           <div className="space-y-3">
             {!devMode && <PlayerHand />}
-            {gameState.phase === 'buy_stocks' && !devMode && <StockMarket />}
             <ActionPanel />
           </div>
         </div>

@@ -46,8 +46,11 @@ export default function LobbyPage() {
     <div className="flex-1 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-slate-800 mb-2">🏨 并购风云</h1>
-          <p className="text-slate-500">经典地产投资桌游 · 在线联机</p>
+          <h1 className="text-5xl font-extrabold mb-3 tracking-wide text-amber-400"
+            style={{ textShadow: '0 2px 8px rgba(196,150,10,0.3)' }}>
+            🏨 并购风云
+          </h1>
+          <p className="text-amber-200/70 text-sm tracking-wider">经典地产投资桌游 · 在线联机</p>
         </div>
 
         <div className="bg-surface backdrop-blur rounded-2xl p-6 shadow-md border border-card-border/50 space-y-4">

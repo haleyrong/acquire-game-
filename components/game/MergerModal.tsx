@@ -25,7 +25,6 @@ export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
   if (!survivor) return null;
 
   const currentDecisionPid = merger.decisionQueue[merger.currentDecisionPlayerIndex];
-  // 如果没有传 localPlayerId（热座模式），默认所有人都可以操作
   const isMe = localPlayerId ? localPlayerId === currentDecisionPid : true;
   const decisionPlayer = currentDecisionPid ? gameState.players[currentDecisionPid] : null;
   const decisionHolding = decisionPlayer?.stocks.find((s) => s.hotelId === merger.acquiredHotelId);
@@ -143,7 +142,7 @@ export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
                     <span className="text-xs text-slate-500">获得 ${(merger.victimStockPrice * sellQty).toLocaleString()}</span>
                     <button onClick={() => handleDecision('sell', sellQty)}
                       className="px-3 py-1 bg-blue-500 text-white text-xs rounded-lg hover:bg-blue-600 active:scale-95 transition-all">
-                      确认卖出
+                      卖出（可继续操作）
                     </button>
                   </div>
                 )}
@@ -153,7 +152,9 @@ export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
               <div className="bg-white rounded-lg p-3 border border-slate-200">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-slate-700">🔄 置换股票</span>
-                  <span className="text-xs text-slate-500">{gameState.config.tradeRatio} 旧股 → 1 新股 ({survivor.name})</span>
+                  <span className="text-xs text-slate-500">
+                    {gameState.config.tradeRatio} 旧股 → 1 {survivor.name} 股 · 余 {survivor.remainingStocks} 股
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <input type="range" min={0} max={decisionQuantity - (decisionQuantity % gameState.config.tradeRatio)}
@@ -162,32 +163,49 @@ export function MergerModal({ localPlayerId }: { localPlayerId?: string }) {
                     className="flex-1 accent-emerald-500" />
                   <span className="text-sm font-mono font-bold text-emerald-600 w-12 text-right">{tradeQty}张</span>
                 </div>
-                {tradeQty > 0 && (
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs text-slate-500">换得 {Math.floor(tradeQty / gameState.config.tradeRatio)} 张 {survivor.name} 股票</span>
-                    <button onClick={() => handleDecision('trade', tradeQty)}
-                      className="px-3 py-1 bg-emerald-500 text-white text-xs rounded-lg hover:bg-emerald-600 active:scale-95 transition-all">
-                      确认置换
-                    </button>
-                  </div>
-                )}
+                {tradeQty > 0 && (() => {
+                  const newStockCount = Math.floor(tradeQty / gameState.config.tradeRatio);
+                  const hasEnough = survivor.remainingStocks >= newStockCount;
+                  return (
+                    <div className="flex justify-between items-center mt-1">
+                      <span className={`text-xs ${hasEnough ? 'text-slate-500' : 'text-red-500'}`}>
+                        换得 {newStockCount} 张 {survivor.name} 股票
+                        {!hasEnough && ` (仅剩${survivor.remainingStocks}股！)`}
+                      </span>
+                      <button onClick={() => handleDecision('trade', tradeQty)}
+                        className={`px-3 py-1 text-white text-xs rounded-lg active:scale-95 transition-all ${
+                          hasEnough
+                            ? 'bg-emerald-500 hover:bg-emerald-600'
+                            : 'bg-red-500 hover:bg-red-600 animate-pulse'
+                        }`}>
+                        {hasEnough ? '置换（可继续）' : '余量不足'}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
 
-              {/* 保留 */}
-              {decisionQuantity > 0 && (
-                <div className="bg-white rounded-lg p-3 border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-medium text-slate-700">📦 保留全部</span>
-                      <p className="text-xs text-slate-400 mt-0.5">{decisionQuantity} 张保留（公司已下市，终局无价值）</p>
-                    </div>
-                    <button onClick={() => handleDecision('hold', decisionQuantity)}
-                      className="px-3 py-1 bg-slate-200 text-slate-600 text-xs rounded-lg hover:bg-slate-300 active:scale-95 transition-all">
-                      全部保留
-                    </button>
+              {/* 保留并结束操作（始终可见） */}
+              <div className="bg-white rounded-lg p-3 border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-slate-700">📦 保留并结束操作</span>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {decisionQuantity > 0
+                        ? `${decisionQuantity} 张保留（公司已下市，终局无价值）`
+                        : '无需保留，直接结束操作'}
+                    </p>
                   </div>
+                  <button onClick={() => handleDecision('hold', decisionQuantity)}
+                    className="px-4 py-2 bg-blue-500 text-white text-xs rounded-lg hover:bg-blue-600 active:scale-95 transition-all font-medium">
+                    保留 & 结束 → 下一人
+                  </button>
                 </div>
-              )}
+              </div>
+              {/* 卖/换后剩余操作提示 */}
+              <p className="text-xs text-slate-400 text-center">
+                可以先卖/换多步，最后点「保留并结束」推进到下一位
+              </p>
             </div>
           </div>
         )}

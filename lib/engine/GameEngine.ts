@@ -262,8 +262,7 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
     } else {
       // 不满足任何酒店的最低建立条件，无事发生
       event = 'none';
-      state.phase = 'buy_stocks';
-      state.stocksBoughtThisTurn = 0;
+      gotoBuyOrSkip(state);
       if (totalOrphanCount > 1) {
         addLog(state, '', 'INFO',
           `${totalOrphanCount} 块独立板块相连，但没有酒店满足最低建立条件`);
@@ -280,8 +279,7 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
       // 同时吸收所有相邻的孤儿板块
       absorbAdjacentOrphans(state, tile, affectedHotelId);
 
-      state.phase = 'buy_stocks';
-      state.stocksBoughtThisTurn = 0;
+      gotoBuyOrSkip(state);
     } else {
     // 相邻多家酒店 → 并购！
     event = 'merger';
@@ -501,8 +499,7 @@ function advanceAfterMerger(state: GameState) {
   if (state.activeMergers.length > 0) {
     state.phase = 'merger_decisions';
   } else {
-    state.phase = 'buy_stocks';
-    state.stocksBoughtThisTurn = 0;
+    gotoBuyOrSkip(state);
   }
 }
 
@@ -719,14 +716,17 @@ export function makeMergerDecision(
   const holding = player.stocks.find((s) => s.hotelId === merger.acquiredHotelId);
   const ownedQuantity = holding?.quantity || 0;
 
-  if (ownedQuantity <= 0) {
-    return { success: false, error: '你没有该酒店的股票' };
-  }
-  if (quantity > ownedQuantity) {
-    return { success: false, error: `你只有 ${ownedQuantity} 张股票` };
-  }
-  if (quantity <= 0) {
-    return { success: false, error: '数量必须大于 0' };
+  // hold 允许数量为 0（卖光了直接结束）
+  if (decision !== 'hold') {
+    if (ownedQuantity <= 0) {
+      return { success: false, error: '你没有该酒店的股票' };
+    }
+    if (quantity > ownedQuantity) {
+      return { success: false, error: `你只有 ${ownedQuantity} 张股票` };
+    }
+    if (quantity <= 0) {
+      return { success: false, error: '数量必须大于 0' };
+    }
   }
 
   const survivor = state.hotels[merger.acquiringHotelId];
@@ -791,12 +791,13 @@ export function makeMergerDecision(
     }
   }
 
-  // 移到下一个决策者
-  merger.currentDecisionPlayerIndex++;
-  if (merger.currentDecisionPlayerIndex >= merger.decisionQueue.length) {
-    merger.status = 'completed';
-    // 执行板块转移和注销
-    finalizeMerger(state, merger);
+  // 移到下一个决策者（仅 hold 时推进）
+  if (decision === 'hold') {
+    merger.currentDecisionPlayerIndex++;
+    if (merger.currentDecisionPlayerIndex >= merger.decisionQueue.length) {
+      merger.status = 'completed';
+      finalizeMerger(state, merger);
+    }
   }
 
   return { success: true };
@@ -840,16 +841,14 @@ function finalizeMerger(state: GameState, merger: MergerEvent) {
 
   // 所有并购完成后，进入买股票阶段
   if (state.activeMergers.every((m) => m.status === 'completed')) {
-    state.phase = 'buy_stocks';
-    state.stocksBoughtThisTurn = 0;
+    gotoBuyOrSkip(state);
   }
 }
 
 /** 完成所有并购决策后继续游戏 */
 export function finishMergerDecisions(state: GameState) {
   state.activeMergers = state.activeMergers.filter((m) => m.status !== 'completed');
-  state.phase = 'buy_stocks';
-  state.stocksBoughtThisTurn = 0;
+  gotoBuyOrSkip(state);
 }
 
 // ---- 酒店建立 ----
@@ -900,8 +899,7 @@ export function foundHotel(state: GameState, hotelId: string): boolean {
 
   // 清除 pending，进入买股票阶段
   state.pendingHotelFounding = null;
-  state.phase = 'buy_stocks';
-  state.stocksBoughtThisTurn = 0;
+  gotoBuyOrSkip(state);
 
   return true;
 }
@@ -1015,6 +1013,19 @@ export function declareGameEnd(state: GameState): boolean {
   addLog(state, '', 'GAME_OVER', '游戏结束！');
 
   return true;
+}
+
+/** 进入购买阶段（如果没有已激活企业则自动跳过） */
+function gotoBuyOrSkip(state: GameState) {
+  const hasActiveHotels = Object.values(state.hotels).some((h) => h.isActive);
+  if (hasActiveHotels) {
+    state.phase = 'buy_stocks';
+    state.stocksBoughtThisTurn = 0;
+  } else {
+    // 无已激活企业，自动补牌跳回合
+    drawTile(state);
+    nextTurn(state);
+  }
 }
 
 // ---- 回合管理 ----
