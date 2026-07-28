@@ -12,7 +12,7 @@ export function PlayerList({ localPlayerId }: { localPlayerId?: string }) {
 
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
-      <h3 className="text-sm font-semibold text-slate-700 mb-3">👥 玩家</h3>
+      <h3 className="text-base font-semibold text-slate-700 mb-3">👥 玩家</h3>
       <div className="space-y-2">
         {gameState.playerOrder.map((playerId, index) => {
           const player = gameState.players[playerId];
@@ -32,13 +32,13 @@ export function PlayerList({ localPlayerId }: { localPlayerId?: string }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`font-medium text-sm truncate ${isCurrentTurn ? 'text-blue-700' : 'text-slate-700'}`}>{player.name}</span>
+                    <span className={`font-medium text-base truncate ${isCurrentTurn ? 'text-blue-700' : 'text-slate-700'}`}>{player.name}</span>
                     {isMe && <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full">我</span>}
                     {isCurrentTurn && <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">当前</span>}
                   </div>
                   {/* 只显示自己的现金和持股数 */}
                   {isMe && (
-                    <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                    <div className="flex items-center gap-3 mt-0.5 text-sm text-slate-500">
                       <span className="font-mono text-emerald-600 font-medium">${player.cash.toLocaleString()}</span>
                       <span>📈 {totalStocks} 股</span>
                     </div>

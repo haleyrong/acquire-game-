@@ -142,6 +142,8 @@ export interface GameState {
   currentPlayerIndex: number; // playerOrder 中的索引
   phase: GamePhase;
   stocksBoughtThisTurn: number; // 当前回合已购买股票数（上限 maxBuyPerTurn）
+  roundNumber: number; // 当前回合数（所有人完成一轮 +1）
+  roundHistory: RoundRecord[]; // 历史回合记录
 
   // 并购
   activeMergers: MergerEvent[]; // 当前活跃的并购（可能有多个）
@@ -154,6 +156,20 @@ export interface GameState {
 
   // 日志
   log: GameLogEntry[];
+}
+
+// ---- 回合记录 ----
+
+export interface PlayerRoundSnapshot {
+  playerId: string;
+  playerName: string;
+  cash: number; // 回合结束时的现金
+  stocks: StockHolding[]; // 回合结束时的持股
+}
+
+export interface RoundRecord {
+  roundNumber: number;
+  players: PlayerRoundSnapshot[];
 }
 
 // ---- 游戏日志 ----

@@ -6,7 +6,7 @@ import { useGameStore } from '@/store/gameStore';
 import { supabase } from '@/lib/supabase/client';
 import * as Engine from '@/lib/engine/GameEngine';
 import {
-  GameBoard, PlayerHand, PlayerList, HotelPanel,
+  GameBoard, PlayerHand, PlayerList, HotelPanel, RoundHistory,
   StockMarket, ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
   MergerModal, DevTilePicker,
 } from '@/components/game';
@@ -176,6 +176,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">🏨 并购风云</h1>
           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">房间 {code}</span>
+          <span className="text-lg font-bold text-blue-600 bg-blue-50 px-3 py-0.5 rounded-full">回合 {gs.roundNumber}</span>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${myTurn?'bg-green-100 text-green-600':'bg-orange-100 text-orange-600'}`}>{myTurn?'✅ 你的回合':'⏳ 对方回合'}</span>
         </div>
         <a href="/lobby" className="text-sm text-slate-500 hover:text-red-500">退出</a>
@@ -194,7 +195,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>
-        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /></div>
+        <div className="w-full lg:w-96 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /><RoundHistory /></div>
       </main>
     </div>
   );

@@ -12,6 +12,7 @@ import type {
   Position,
   GameLogEntry,
   MergerEvent,
+  RoundRecord,
 } from './types';
 import { getStockPrice } from '@/lib/config/classic';
 
@@ -156,6 +157,8 @@ export function createGame(
     currentPlayerIndex: 0,
     phase: 'place_tile',
     stocksBoughtThisTurn: 0,
+    roundNumber: 1,
+    roundHistory: [],
     activeMergers: [],
     pendingHotelFounding: null,
     pendingAcquirerChoice: null,
@@ -210,6 +213,11 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
   const currentPlayer = getCurrentPlayer(state);
   if (!currentPlayer.handTileIds.includes(tileId)) {
     return { success: false, error: '你手中没有这块板块', event: 'none', adjacentHotels: [] };
+  }
+
+  // 前置检查：该位置是否处于两间安全酒店之间（禁止放置）
+  if (isBetweenSafeHotels(state, tile)) {
+    return { success: false, error: '该位置位于两间安全酒店之间，无法放置。可以丢弃此牌换一张新牌', event: 'none', adjacentHotels: [] };
   }
 
   // 1. 标记板块为已放置
@@ -297,9 +305,9 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
       // 吸收相邻孤儿板块
       absorbAdjacentOrphans(state, tile, survivor.id);
 
-      // 所有更小的酒店被并购
+      // 所有更小的非安全酒店被并购
       for (const victim of smaller) {
-        if (victim.isActive && victim.size > 0) {
+        if (victim.isActive && victim.size > 0 && !victim.isSafe) {
           initiateMerger(state, survivor, victim);
         }
       }
@@ -336,6 +344,56 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
     adjacentHotels,
     affectedHotelId,
   };
+}
+
+/** 检查位置是否夹在两间安全酒店之间 */
+function isBetweenSafeHotels(state: GameState, tile: Tile): boolean {
+  if (tile.placed) return false;
+  const adjacentHotels = findAdjacentHotels(state, tile.id);
+  if (adjacentHotels.length < 2) return false;
+  // 相邻酒店中如果有 >=2 间安全酒店，且不是同一间
+  const safeHotels = adjacentHotels.filter((hid) => state.hotels[hid]?.isSafe);
+  // 去重
+  const uniqueSafe = [...new Set(safeHotels)];
+  return uniqueSafe.length >= 2;
+}
+
+/** 检查某板块是否为死区牌（位于两间安全酒店之间） */
+export function isTileInDeadZone(state: GameState, tileId: string): boolean {
+  const tile = state.tiles[tileId];
+  if (!tile || tile.placed) return false;
+  return isBetweenSafeHotels(state, tile);
+}
+
+/** 丢弃手牌换一张（仅限死区牌） */
+export function swapTile(state: GameState, oldTileId: string): { success: boolean; error?: string; newTileId?: string } {
+  const player = getCurrentPlayer(state);
+  if (!player.handTileIds.includes(oldTileId)) {
+    return { success: false, error: '你手中没有这块板块' };
+  }
+
+  // 必须是死区牌才能换
+  if (!isBetweenSafeHotels(state, state.tiles[oldTileId])) {
+    return { success: false, error: '只有位于安全酒店之间的板块才能换' };
+  }
+
+  // 找到所有可用板块
+  const allHeldTileIds = new Set<string>();
+  for (const p of Object.values(state.players)) {
+    for (const tid of p.handTileIds) allHeldTileIds.add(tid);
+  }
+  const available = Object.values(state.tiles).filter(
+    (t) => !t.placed && !allHeldTileIds.has(t.id)
+  );
+  if (available.length === 0) return { success: false, error: '没有可换的板块' };
+
+  // 移除旧牌，随机发新牌
+  player.handTileIds = player.handTileIds.filter((id) => id !== oldTileId);
+  const newTile = available[Math.floor(Math.random() * available.length)];
+  player.handTileIds.push(newTile.id);
+
+  addLog(state, player.id, 'SWAP', `${player.name} 丢弃了死区板块 ${state.tiles[oldTileId].label}，换了一张新牌`);
+  return { success: true, newTileId: newTile.id };
 }
 
 /** 检测与某板块相邻的已放置板块所属的酒店（去重） */
@@ -468,18 +526,18 @@ export function chooseAcquirer(state: GameState, chosenSurvivorId: string): bool
   // 吸收相邻孤儿板块
   absorbAdjacentOrphans(state, tile, chosenSurvivorId);
 
-  // 同级所有其他酒店都被并购
+  // 同级所有其他非安全酒店被并购
   for (const victimId of otherTies) {
     const victim = state.hotels[victimId];
-    if (victim) {
+    if (victim && !victim.isSafe) {
       initiateMerger(state, survivor, victim);
     }
   }
 
-  // 更小的酒店也被并购
+  // 更小的非安全酒店也被并购
   for (const victimId of pending.smallerVictims) {
     const victim = state.hotels[victimId];
-    if (victim && victim.isActive) {
+    if (victim && victim.isActive && !victim.isSafe) {
       initiateMerger(state, survivor, victim);
     }
   }
@@ -499,7 +557,7 @@ export function chooseAcquirer(state: GameState, chosenSurvivorId: string): bool
   return true;
 }
 
-/** 计算分红（处理平级：同股数的玩家平分奖金） */
+/** 计算分红（平级规则：全同级 => 合并两奖平分；仅第二同级 => 第二奖平分） */
 function resolveBonuses(
   state: GameState, hotelName: string, price: number,
   shareholders: { player: Player; quantity: number }[]
@@ -513,33 +571,71 @@ function resolveBonuses(
 
   if (shareholders.length === 0) return result;
 
+  const totalMajorityPool = price * state.config.majorityBonusMultiplier;
+  const totalMinorityPool = price * state.config.minorityBonusMultiplier;
   const topQty = shareholders[0].quantity;
-  const majorityGroup = shareholders.filter(s => s.quantity === topQty);
-  const totalMajorityBonus = price * state.config.majorityBonusMultiplier;
-  const perMajority = Math.floor(totalMajorityBonus / majorityGroup.length);
+  const tieGroup = shareholders.filter(s => s.quantity === topQty);
 
-  for (const s of majorityGroup) {
-    s.player.cash += perMajority;
-    addLog(state, s.player.id, 'BONUS',
-      `${s.player.name} 作为 ${hotelName} 最大股东(${s.quantity}股)获得分红 $${perMajority.toLocaleString()}${majorityGroup.length > 1 ? '（平分）' : ''}`);
-  }
-  result.majority = majorityGroup[0];
-  result.majorityBonus = perMajority;
-
-  // 第二大股东（排除第一大股东组）
+  // 剩余股东
   const remaining = shareholders.filter(s => s.quantity < topQty);
+
+  if (tieGroup.length > 1 && remaining.length === 0) {
+    // 只有一级：所有玩家平分两奖金之和
+    const pool = totalMajorityPool + totalMinorityPool;
+    const perPlayer = Math.floor(pool / tieGroup.length);
+    for (const s of tieGroup) {
+      s.player.cash += perPlayer;
+      addLog(state, s.player.id, 'BONUS',
+        `${s.player.name} 作为 ${hotelName} 并列股东(${s.quantity}股)平分分红 $${perPlayer.toLocaleString()}`);
+    }
+    result.majority = tieGroup[0];
+    result.majorityBonus = perPlayer;
+    result.minority = null;
+    result.minorityBonus = 0;
+    return result;
+  }
+
+  // 第一级：可能有多人并列
+  if (tieGroup.length > 1) {
+    // 第一级多人并列 → 合并两奖金池，平级所有人 + 第二级所有人一起平分
+    const secondQty = remaining.length > 0 ? remaining[0].quantity : 0;
+    const secondGroup = remaining.filter(s => s.quantity === secondQty);
+    const allTied = [...tieGroup, ...secondGroup];
+    const pool = totalMajorityPool + totalMinorityPool;
+    const perPlayer = Math.floor(pool / allTied.length);
+
+    for (const s of allTied) {
+      s.player.cash += perPlayer;
+      addLog(state, s.player.id, 'BONUS',
+        `${s.player.name} 作为 ${hotelName} 并列股东(${s.quantity}股)平分分红 $${perPlayer.toLocaleString()}`);
+    }
+    result.majority = tieGroup[0];
+    result.majorityBonus = perPlayer;
+    result.minority = secondGroup.length > 0 ? secondGroup[0] : null;
+    result.minorityBonus = perPlayer;
+    return result;
+  }
+
+  // 第一级只有一人：获得全额第一奖
+  const majorityPlayer = tieGroup[0];
+  majorityPlayer.player.cash += totalMajorityPool;
+  addLog(state, majorityPlayer.player.id, 'BONUS',
+    `${majorityPlayer.player.name} 作为 ${hotelName} 最大股东(${majorityPlayer.quantity}股)获得分红 $${totalMajorityPool.toLocaleString()}`);
+  result.majority = majorityPlayer;
+  result.majorityBonus = totalMajorityPool;
+
+  // 第二级
   if (remaining.length > 0) {
     const secondQty = remaining[0].quantity;
-    const minorityGroup = remaining.filter(s => s.quantity === secondQty);
-    const totalMinorityBonus = price * state.config.minorityBonusMultiplier;
-    const perMinority = Math.floor(totalMinorityBonus / minorityGroup.length);
+    const secondGroup = remaining.filter(s => s.quantity === secondQty);
+    const perMinority = Math.floor(totalMinorityPool / secondGroup.length);
 
-    for (const s of minorityGroup) {
+    for (const s of secondGroup) {
       s.player.cash += perMinority;
       addLog(state, s.player.id, 'BONUS',
-        `${s.player.name} 作为 ${hotelName} 第二大股东(${s.quantity}股)获得分红 $${perMinority.toLocaleString()}${minorityGroup.length > 1 ? '（平分）' : ''}`);
+        `${s.player.name} 作为 ${hotelName} 第二大股东(${s.quantity}股)获得分红 $${perMinority.toLocaleString()}${secondGroup.length > 1 ? '（平分）' : ''}`);
     }
-    result.minority = minorityGroup[0];
+    result.minority = secondGroup[0];
     result.minorityBonus = perMinority;
   }
 
@@ -929,9 +1025,25 @@ export function getCurrentPlayer(state: GameState): Player {
 
 /** 切换到下一个玩家 */
 export function nextTurn(state: GameState) {
-  state.currentPlayerIndex =
-    (state.currentPlayerIndex + 1) % state.playerOrder.length;
+  const newIndex = (state.currentPlayerIndex + 1) % state.playerOrder.length;
 
+  // 如果绕回了第0个玩家，说明一轮完成了
+  if (newIndex === 0 && state.currentPlayerIndex !== 0) {
+    // 记录当前回合快照
+    const snapshot: RoundRecord = {
+      roundNumber: state.roundNumber,
+      players: state.playerOrder.map((pid) => ({
+        playerId: pid,
+        playerName: state.players[pid].name,
+        cash: state.players[pid].cash,
+        stocks: state.players[pid].stocks.map((s) => ({ ...s })),
+      })),
+    };
+    state.roundHistory.push(snapshot);
+    state.roundNumber++;
+  }
+
+  state.currentPlayerIndex = newIndex;
   const player = getCurrentPlayer(state);
   state.phase = 'place_tile';
   state.stocksBoughtThisTurn = 0;

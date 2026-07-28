@@ -24,8 +24,8 @@ export const classicConfig: GameConfig = {
     { name: '帝国集团', tier: 'luxury', color: '#DD6B20', minFoundingSize: 3 },
 
     // Standard (3家) — 需要2块相连即可建立
-    { name: '节日酒店', tier: 'standard', color: '#38A169', minFoundingSize: 2 },
-    { name: '美利坚', tier: 'standard', color: '#3182CE', minFoundingSize: 2 },
+    { name: '妮妮美术馆', tier: 'standard', color: '#38A169', minFoundingSize: 2 },
+    { name: '包包厨房', tier: 'standard', color: '#3182CE', minFoundingSize: 2 },
     { name: '大陆控股', tier: 'standard', color: '#805AD5', minFoundingSize: 2 },
 
     // Economy (2家) — 需要2块相连即可建立

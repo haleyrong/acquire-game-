@@ -9,6 +9,7 @@ import {
   placeTile,
   foundHotel,
   chooseAcquirer,
+  swapTile,
   buyStock,
   completeStockBuying,
   makeMergerDecision,
@@ -39,6 +40,7 @@ interface GameStore {
   toggleDevMode: () => void;
   selectTile: (tileId: string) => void;
   getAvailableTiles: () => Tile[];
+  swapTile: (tileId: string) => { success: boolean; error?: string; newTileId?: string } | null;
   confirmPlaceTile: () => PlaceTileResult | null;
   confirmFoundHotel: (hotelId: string) => boolean;
   confirmAcquirerChoice: (hotelId: string) => boolean;
@@ -94,6 +96,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { gameState } = get();
     if (!gameState) return [];
     return Object.values(gameState.tiles).filter((t) => !t.placed);
+  },
+
+  swapTile: (tileId: string) => {
+    const { gameState, remoteHandler } = get();
+    if (!gameState || gameState.phase !== 'place_tile') return null;
+    const result = swapTile(gameState, tileId);
+    if (!result.success) { set({ message: result.error }); return null; }
+    if (remoteHandler) {
+      remoteHandler('SWAP_TILE', { oldTileId: tileId, newTileId: result.newTileId }, getCurrentPlayer(gameState).id);
+    }
+    set({ gameState: { ...gameState }, selectedTileId: null });
+    return result;
   },
 
   confirmPlaceTile: () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useGameStore } from '@/store/gameStore';
-import { getCurrentPlayer } from '@/lib/engine/GameEngine';
+import { getCurrentPlayer, getAdjacentPositions } from '@/lib/engine/GameEngine';
 import { BoardTile } from './BoardTile';
 
 export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: boolean; localPlayerId?: string }) {
@@ -28,6 +28,23 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
     );
   }
 
+  // 计算死区（安全酒店之间的空位）
+  const deadZoneTileIds = new Set<string>();
+  for (const tile of Object.values(gameState.tiles)) {
+    if (tile.placed) continue;
+    // 检查该空位相邻的酒店
+    const adjHotels = new Set<string>();
+    for (const pos of getAdjacentPositions(tile.position)) {
+      const adjTile = Object.values(gameState.tiles).find(
+        (t) => t.position.row === pos.row && t.position.col === pos.col
+      );
+      if (adjTile?.hotelId && gameState.hotels[adjTile.hotelId]?.isSafe) {
+        adjHotels.add(adjTile.hotelId);
+      }
+    }
+    if (adjHotels.size >= 2) deadZoneTileIds.add(tile.id);
+  }
+
   // 构建 9 行 × 12 列的网格
   const rows = [];
   for (let row = 1; row <= 9; row++) {
@@ -49,6 +66,7 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
             isInHand={inHand}
             isSelected={selectedTileId === tile.id}
             isPending={isChoosingHotel && pendingTileIds.has(tile.id)}
+            isDeadZone={deadZoneTileIds.has(tile.id)}
             isMyTurn={isMyTurn}
             devMode={devMode}
             onSelect={() => selectTile(tile.id)}
@@ -71,7 +89,7 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
         {Array.from({ length: 12 }, (_, i) => (
           <div
             key={i}
-            className="w-10 h-5 flex items-center justify-center text-xs text-slate-500 font-medium"
+            className="w-16 h-5 flex items-center justify-center text-xs text-slate-500 font-medium"
           >
             {i + 1}
           </div>

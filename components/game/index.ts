@@ -10,3 +10,4 @@ export { HotelChoiceModal } from './HotelChoiceModal';
 export { AcquirerChoiceModal } from './AcquirerChoiceModal';
 export { MergerModal } from './MergerModal';
 export { DevTilePicker } from './DevTilePicker';
+export { RoundHistory } from './RoundHistory';

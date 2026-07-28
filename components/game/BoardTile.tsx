@@ -8,6 +8,7 @@ interface BoardTileProps {
   isInHand: boolean;
   isSelected: boolean;
   isPending: boolean;
+  isDeadZone: boolean;
   isMyTurn: boolean;
   devMode?: boolean;
   onSelect: () => void;
@@ -20,6 +21,7 @@ export function BoardTile({
   isInHand,
   isSelected,
   isPending,
+  isDeadZone,
   isMyTurn,
   devMode,
   onSelect,
@@ -30,11 +32,13 @@ export function BoardTile({
   let hoverClass = '';
   let cursorClass = 'cursor-default';
 
-  if (tile.placed && hotel) {
-    // 已放置且有酒店归属——显示酒店颜色
+  if (isDeadZone && !tile.placed) {
+    // 安全酒店之间的死区
+    bgClass = 'bg-slate-800 border-slate-700';
+    cursorClass = 'cursor-not-allowed';
+  } else if (tile.placed && hotel) {
     bgClass = '';
   } else if (tile.placed) {
-    // 已放置但无酒店（独立板块）
     bgClass = 'bg-amber-100 border-amber-300';
   }
 
@@ -43,11 +47,10 @@ export function BoardTile({
   } else if (isSelected) {
     bgClass = 'ring-2 ring-blue-500 ring-offset-1 bg-blue-100 border-blue-400';
   } else if (devMode && !tile.placed) {
-    // 开发者模式：所有空位可交互
     hoverClass = 'hover:bg-green-50 hover:border-green-400 border-dashed';
     cursorClass = 'cursor-pointer';
     bgClass = 'bg-slate-50 border-slate-300';
-  } else if (isInHand && isMyTurn && !tile.placed) {
+  } else if (isInHand && isMyTurn && !tile.placed && !isDeadZone) {
     hoverClass = 'hover:bg-blue-50 hover:border-blue-400';
     cursorClass = 'cursor-pointer';
   }
@@ -59,7 +62,7 @@ export function BoardTile({
   return (
     <div
       className={`
-        relative w-10 h-10 rounded border
+        relative w-16 h-10 rounded border
         flex items-center justify-center
         text-[9px] font-medium
         transition-all duration-100
@@ -67,23 +70,15 @@ export function BoardTile({
       `}
       style={hotelStyle}
       onClick={() => {
+        if (isDeadZone && !tile.placed) return;
         if (devMode) {
-          // 开发者模式：未放置板块 → 点击选中，已选中+空位 → 放置
           if (!tile.placed) {
-            if (isSelected) {
-              onPlace();
-            } else {
-              onSelect();
-            }
+            if (isSelected) { onPlace(); } else { onSelect(); }
           }
           return;
         }
         if (isInHand && isMyTurn && !tile.placed) {
-          if (isSelected) {
-            onPlace();
-          } else {
-            onSelect();
-          }
+          if (isSelected) { onPlace(); } else { onSelect(); }
         }
       }}
     >
