@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/store/gameStore';
+import { initFuturesConfig } from '@/lib/engine/GameEngine';
 import {
   GameBoard,
   PlayerHand,
@@ -13,7 +14,10 @@ import {
   MergerModal,
   DevTilePicker,
   RoundHistory,
+  ThisRoundPanel,
   BuyStockModal,
+  ShopModal,
+  UseItemModal,
 } from '@/components/game';
 
 export default function Home() {
@@ -38,6 +42,7 @@ export default function Home() {
     }
   }, [gameState?.currentPlayerIndex, gameState?.roundNumber]);
 
+  const [gameMode, setGameMode] = useState<'classic' | 'futures'>('classic');
   const [player1Name, setPlayer1Name] = useState('玩家1');
   const [player2Name, setPlayer2Name] = useState('玩家2');
 
@@ -87,8 +92,21 @@ export default function Home() {
               />
             </div>
 
+            <div className="flex rounded-xl overflow-hidden border border-slate-200">
+              <button
+                onClick={() => setGameMode('classic')}
+                className={`flex-1 py-2 text-sm font-medium ${gameMode === 'classic' ? 'bg-blue-500 text-white' : 'bg-white text-slate-600'}`}>
+                🏛️ 经典
+              </button>
+              <button
+                onClick={() => setGameMode('futures')}
+                className={`flex-1 py-2 text-sm font-medium ${gameMode === 'futures' ? 'bg-purple-500 text-white' : 'bg-white text-slate-600'}`}>
+                📈 期货
+              </button>
+            </div>
+
             <button
-              onClick={() => initGame([player1Name || '玩家1', player2Name || '玩家2'])}
+              onClick={() => initGame([player1Name || '玩家1', player2Name || '玩家2'], gameMode)}
               disabled={!player1Name.trim() || !player2Name.trim()}
               className="w-full py-3 bg-blue-500 text-white rounded-xl font-semibold text-lg
                          hover:bg-blue-600 active:scale-[0.98] transition-all
@@ -178,7 +196,9 @@ export default function Home() {
       {/* 弹窗 */}
       <HotelChoiceModal />
       <AcquirerChoiceModal />
+      {gameState.phase === 'use_item' && gameState.mode === 'futures' && <UseItemModal isMyTurn={true} />}
       {gameState.phase === 'buy_stocks' && <BuyStockModal isMyTurn={true} />}
+      {gameState.phase === 'shop' && gameState.mode === 'futures' && <ShopModal isMyTurn={true} />}
       <MergerModal />
 
       {/* 主体 */}
@@ -204,8 +224,9 @@ export default function Home() {
         {/* 右侧：信息面板 */}
         <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
           <PlayerList />
-          <HotelPanel />
+          <ThisRoundPanel />
           <RoundHistory />
+          <HotelPanel />
         </div>
       </main>
     </div>

@@ -9,6 +9,7 @@ export default function LobbyPage() {
   const [playerName, setPlayerName] = useState('');
   const [playerCount, setPlayerCount] = useState(2);
   const [joinCode, setJoinCode] = useState('');
+  const [gameMode, setGameMode] = useState<'classic' | 'futures'>('classic');
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
@@ -17,7 +18,7 @@ export default function LobbyPage() {
     if (!playerName.trim()) { setError('请输入你的名字'); return; }
     setIsCreating(true); setError('');
     try {
-      const result = await createOnlineGame(playerName.trim());
+      const result = await createOnlineGame(playerName.trim(), gameMode);
       if (!result) { setError('创建失败'); return; }
       router.push(`/game/${result.code}?pid=${result.playerId}&host=true`);
     } catch (e) {
@@ -65,6 +66,29 @@ export default function LobbyPage() {
           </div>
 
           {/* 玩家人数 & 创建 */}
+          {/* 模式切换 */}
+          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+            <span className="text-sm text-slate-600">🎮 模式</span>
+            <button
+              onClick={() => setGameMode('classic')}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                gameMode === 'classic'
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-white text-slate-600 border border-slate-200'
+              }`}>
+              🏛️ 经典模式
+            </button>
+            <button
+              onClick={() => setGameMode('futures')}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                gameMode === 'futures'
+                  ? 'bg-purple-500 text-white shadow-sm'
+                  : 'bg-white text-slate-600 border border-slate-200'
+              }`}>
+              📈 期货模式
+            </button>
+          </div>
+
           <div>
             <label className="block text-sm text-slate-600 mb-1">👥 玩家人数: {playerCount}</label>
             <input type="range" min={2} max={6} value={playerCount}

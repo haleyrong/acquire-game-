@@ -6,9 +6,9 @@ import { useGameStore } from '@/store/gameStore';
 import { supabase } from '@/lib/supabase/client';
 import * as Engine from '@/lib/engine/GameEngine';
 import {
-  GameBoard, PlayerHand, PlayerList, HotelPanel, RoundHistory,
+  GameBoard, PlayerHand, PlayerList, HotelPanel, RoundHistory, ThisRoundPanel,
   ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
-  MergerModal, DevTilePicker, BuyStockModal,
+  MergerModal, DevTilePicker, BuyStockModal, ShopModal, UseItemModal,
 } from '@/components/game';
 
 export default function GameRoomPage() {
@@ -211,7 +211,9 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
       {/* 只有自己回合才显示交互弹窗，其他人看到等待提示 */}
       {myTurn ? <HotelChoiceModal /> : gs.phase === 'choose_hotel' && <WaitOverlay msg="等待对手选择酒店..." />}
       {myTurn ? <AcquirerChoiceModal /> : gs.phase === 'choose_acquirer' && <WaitOverlay msg="等待对手选择并购方..." />}
+      {gs.phase === 'use_item' && gs.mode === 'futures' && <UseItemModal isMyTurn={myTurn} />}
       {gs.phase === 'buy_stocks' && <BuyStockModal isMyTurn={myTurn} />}
+      {gs.phase === 'shop' && gs.mode === 'futures' && <ShopModal isMyTurn={myTurn} />}
       <MergerModal localPlayerId={pid} />
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-[1400px] mx-auto w-full">
         <div className="flex-1 flex flex-col gap-4">
@@ -222,7 +224,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
             <ActionPanel isMyTurn={myTurn} />
           </div>
         </div>
-        <div className="w-full lg:w-96 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><HotelPanel /><RoundHistory /></div>
+        <div className="w-full lg:w-96 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><ThisRoundPanel /><RoundHistory /><HotelPanel /></div>
       </main>
     </div>
   );

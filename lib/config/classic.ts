@@ -18,19 +18,37 @@ export const classicConfig: GameConfig = {
 
   bonusForFoundingHotel: 1,
 
+  // 商店配置
+  universalTilePrice: 1000,
+  maxFuturesPerPlayer: 10,
+  shopItems: [
+    { id: 'universal_tile', name: '万能板块', icon: '🃏', price: 1000, description: '可以放在棋盘上任意空位' },
+  ],
+  futuresConfig: [],
+  // 期货名称映射
+  futuresNames: {
+    'SpaceX': { name: '火箭发射', icon: '🚀' },
+    'Google': { name: '芯片', icon: '💻' },
+    '妮妮美术馆': { name: '名画', icon: '🖼️' },
+    '包包厨房': { name: '小麦粉', icon: '🌾' },
+    '莎莎猫咖': { name: '咖啡豆', icon: '☕' },
+    '比亚迪汽车': { name: '锂电池', icon: '🔋' },
+    '中医连锁': { name: '中药材', icon: '🌿' },
+  },
+
   hotels: [
     // Luxury (2家)
-    { name: '寰宇国际', tier: 'luxury', color: '#E53E3E', minFoundingSize: 3, icon: '🏰' },
-    { name: '帝国集团', tier: 'luxury', color: '#DD6B20', minFoundingSize: 3, icon: '👑' },
+    { name: 'SpaceX', tier: 'luxury', color: '#E53E3E', minFoundingSize: 3, icon: '🚀' },
+    { name: 'Google', tier: 'luxury', color: '#DD6B20', minFoundingSize: 3, icon: '🌐' },
 
     // Standard (3家)
     { name: '妮妮美术馆', tier: 'standard', color: '#38A169', minFoundingSize: 2, icon: '🎨' },
     { name: '包包厨房', tier: 'standard', color: '#3182CE', minFoundingSize: 2, icon: '🍳' },
-    { name: '大陆控股', tier: 'standard', color: '#805AD5', minFoundingSize: 2, icon: '🏢' },
+    { name: '莎莎猫咖', tier: 'standard', color: '#805AD5', minFoundingSize: 2, icon: '🐱' },
 
     // Economy (2家)
-    { name: '卢克索', tier: 'economy', color: '#D69E2E', minFoundingSize: 2, icon: '🏪' },
-    { name: '高塔连锁', tier: 'economy', color: '#718096', minFoundingSize: 2, icon: '🗼' },
+    { name: '比亚迪汽车', tier: 'economy', color: '#D69E2E', minFoundingSize: 2, icon: '🚗' },
+    { name: '中医连锁', tier: 'economy', color: '#718096', minFoundingSize: 2, icon: '🏥' },
   ],
 };
 
@@ -70,6 +88,15 @@ export function getStockPrice(tier: string, size: number): number {
   if (size >= 4) return 400;
   if (size >= 3) return 300;
   return 200; // size = 2
+}
+
+// 期货价格乘数
+export function getFuturesPriceMultiplier(size: number, tier: string): number {
+  const isLuxury = tier === 'luxury';
+  if (size >= 21) return isLuxury ? 15 : 10;
+  if (size >= 10) return isLuxury ? 5 : 4;
+  if (size >= 5) return isLuxury ? 2.5 : 2;
+  return 1;
 }
 
 // 创建酒店名称列表（中文版用英文简称做ID）

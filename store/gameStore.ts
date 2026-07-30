@@ -12,6 +12,15 @@ import {
   swapTile,
   buyStock,
   completeStockBuying,
+  skipShop,
+  buyUniversalTile,
+  buyFutures,
+  sellFutures,
+  getAvailableShopItems,
+  getFuturesPrice,
+  initFuturesConfig,
+  skipUseItem,
+  useUniversalTile,
   makeMergerDecision,
   finishMergerDecisions,
   canDeclareEnd,
@@ -30,13 +39,14 @@ interface GameStore {
   selectedTileId: string | null;
   message: string | null;
   devMode: boolean;
+  placingUniversalTile: boolean; // 正在使用万能板块（等待点击棋盘）
 
   // 联网
   remoteHandler: RemoteActionHandler | null;
   setRemoteHandler: (h: RemoteActionHandler | null) => void;
 
   // 操作
-  initGame: (playerNames: string[]) => void;
+  initGame: (playerNames: string[], mode?: string) => void;
   toggleDevMode: () => void;
   selectTile: (tileId: string) => void;
   getAvailableTiles: () => Tile[];
@@ -46,6 +56,14 @@ interface GameStore {
   confirmAcquirerChoice: (hotelId: string) => boolean;
   confirmBuyStock: (hotelId: string, quantity: number) => BuyStockResult | null;
   finishBuying: () => void;
+  // 商店/期货
+  doSkipShop: () => void;
+  doBuyUniversal: () => { success: boolean; error?: string };
+  doBuyFutures: (hotelId: string, quantity: number) => { success: boolean; error?: string };
+  doSellFutures: (hotelId: string, quantity: number) => { success: boolean; error?: string };
+  doSkipUseItem: () => void;
+  startPlacingUniversal: () => void;
+  doUseUniversalTile: (tileId: string) => { success: boolean; error?: string; event: string; adjacentHotels: string[]; affectedHotelId?: string };
   confirmMergerDecision: (
     mergerIndex: number,
     playerId: string,
@@ -64,12 +82,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectedTileId: null,
   message: null,
   devMode: false,
+  placingUniversalTile: false,
   remoteHandler: null,
 
   setRemoteHandler: (h) => set({ remoteHandler: h }),
 
-  initGame: (playerNames: string[]) => {
+  initGame: (playerNames: string[], mode?: string) => {
     const state = createGame('local-game', classicConfig, playerNames);
+    if (mode === 'futures') {
+      state.mode = 'futures';
+      initFuturesConfig(state);
+    }
     set({ gameState: state, selectedTileId: null, message: null });
   },
 
@@ -86,8 +109,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    if (gameState.phase !== 'place_tile') return;
+    const isItemPhase = gameState.phase === 'use_item';
+    if (gameState.phase !== 'place_tile' && !isItemPhase) return;
     const player = getCurrentPlayer(gameState);
+    // 道具阶段可以选择棋盘上的空位
+    if (isItemPhase) {
+      const tile = gameState.tiles[tileId];
+      if (!tile || tile.placed) return;
+      set({ selectedTileId: tileId });
+      return;
+    }
     if (!player.handTileIds.includes(tileId)) return;
     set({ selectedTileId: tileId });
   },
@@ -111,8 +142,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   confirmPlaceTile: () => {
-    const { gameState, selectedTileId, devMode, remoteHandler } = get();
+    const { gameState, selectedTileId, devMode, remoteHandler, placingUniversalTile } = get();
     if (!gameState || !selectedTileId) return null;
+
+    // 万能板块模式：点击棋盘空位就是放置位置
+    if (placingUniversalTile && gameState.phase === 'use_item') {
+      const result = useUniversalTile(gameState, selectedTileId);
+      if (!result.success) { set({ message: result.error || '使用失败', placingUniversalTile: false }); return null; }
+      if (remoteHandler) remoteHandler('USE_UNIVERSAL', { tileId: selectedTileId }, getCurrentPlayer(gameState).id);
+      set({ gameState: { ...gameState }, selectedTileId: null, placingUniversalTile: false });
+      return result;
+    }
 
     if (devMode) {
       const player = getCurrentPlayer(gameState);
@@ -274,8 +314,66 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return result;
   },
 
+  // 商店操作
+  doSkipShop: () => {
+    const { gameState, remoteHandler } = get();
+    if (!gameState || gameState.phase !== 'shop') return;
+    const player = getCurrentPlayer(gameState);
+    skipShop(gameState);
+    if (remoteHandler) remoteHandler('SKIP_SHOP', {}, player.id);
+    set({ gameState: { ...gameState } });
+  },
+
+  doBuyUniversal: () => {
+    const { gameState, remoteHandler } = get();
+    if (!gameState || gameState.phase !== 'shop') return { success: false, error: '不在商店阶段' };
+    const result = buyUniversalTile(gameState);
+    if (result.success && remoteHandler) remoteHandler('BUY_UNIVERSAL', {}, getCurrentPlayer(gameState).id);
+    set({ gameState: gameState ? { ...gameState } : null });
+    return result;
+  },
+
+  doBuyFutures: (hotelId: string, quantity: number) => {
+    const { gameState, remoteHandler } = get();
+    if (!gameState || gameState.phase !== 'shop') return { success: false, error: '不在商店阶段' };
+    const result = buyFutures(gameState, hotelId, quantity);
+    if (result.success && remoteHandler) remoteHandler('BUY_FUTURES', { hotelId, quantity }, getCurrentPlayer(gameState).id);
+    set({ gameState: gameState ? { ...gameState } : null });
+    return result;
+  },
+
+  doSellFutures: (hotelId: string, quantity: number) => {
+    const { gameState, remoteHandler } = get();
+    if (!gameState || gameState.phase !== 'shop') return { success: false, error: '不在商店阶段' };
+    const result = sellFutures(gameState, hotelId, quantity);
+    if (result.success && remoteHandler) remoteHandler('SELL_FUTURES', { hotelId, quantity }, getCurrentPlayer(gameState).id);
+    set({ gameState: gameState ? { ...gameState } : null });
+    return result;
+  },
+
+  // 道具操作
+  doSkipUseItem: () => {
+    const { gameState } = get();
+    if (!gameState || gameState.phase !== 'use_item') return;
+    skipUseItem(gameState);
+    set({ gameState: { ...gameState } });
+  },
+
+  startPlacingUniversal: () => set({ placingUniversalTile: true }),
+
+  doUseUniversalTile: (tileId: string) => {
+    const { gameState, remoteHandler } = get();
+    if (!gameState || gameState.phase !== 'use_item') return { success: false, error: '不在道具阶段', event: 'none', adjacentHotels: [] };
+    const result = useUniversalTile(gameState, tileId);
+    if (result.success && remoteHandler) {
+      remoteHandler('USE_UNIVERSAL', { tileId }, getCurrentPlayer(gameState).id);
+    }
+    set({ gameState: gameState ? { ...gameState } : null });
+    return result;
+  },
+
   clearMessage: () => set({ message: null }),
 
   resetGame: () =>
-    set({ gameState: null, selectedTileId: null, message: null, devMode: false }),
+    set({ gameState: null, selectedTileId: null, message: null, devMode: false, placingUniversalTile: false }),
 }));

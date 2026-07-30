@@ -55,6 +55,19 @@ export interface StockHolding {
   quantity: number;
 }
 
+/** 期货持仓 */
+export interface FuturesHolding {
+  hotelId: string;
+  quantity: number;
+  purchasePrice: number; // 买入时的单价
+}
+
+/** 玩家道具 */
+export interface PlayerItem {
+  type: 'universal_tile'; // 道具类型
+  quantity: number;
+}
+
 /** 玩家 */
 export interface Player {
   id: string;
@@ -62,6 +75,9 @@ export interface Player {
   cash: number;
   handTileIds: string[]; // 手中的板块ID（通常6张）
   stocks: StockHolding[];
+  futures: FuturesHolding[]; // 期货持仓
+  items: PlayerItem[]; // 道具
+  usedItemThisTurn: boolean; // 本回合是否已使用过道具
   turnOrder: number;
   isConnected: boolean;
 }
@@ -97,12 +113,16 @@ export interface MergerDecision {
 
 // ---- 游戏阶段 ----
 
+export type GameMode = 'classic' | 'futures';
+
 export type GamePhase =
   | 'place_tile' // 放置板块
+  | 'use_item' // 使用道具（期货模式）
   | 'choose_hotel' // 选择激活哪家酒店
   | 'choose_acquirer' // 并购时选择谁吞谁（同级酒店）
   | 'merger_decisions' // 被并购股东做决策
   | 'buy_stocks' // 购买股票
+  | 'shop' // 商店阶段（期货模式）
   | 'draw_tile' // 补牌
   | 'game_over'; // 游戏结束
 
@@ -123,9 +143,24 @@ export interface PendingAcquirerChoice {
 
 // ---- 游戏状态 ----
 
+export interface ShopItem {
+  id: string;
+  name: string;
+  icon: string;
+  price: number;
+  description: string;
+}
+
+export interface FuturesConfig {
+  hotelId: string; // 对应企业
+  basePrice: number; // 基础价格
+  name: string; // 期货名称
+  icon: string; // 期货图标
+}
+
 export interface GameState {
   gameId: string;
-  mode: 'classic' | 'advanced';
+  mode: GameMode;
   status: 'waiting' | 'playing' | 'finished';
   config: GameConfig;
 
@@ -146,6 +181,7 @@ export interface GameState {
   stocksBoughtThisTurn: number; // 当前回合已购买股票数（上限 maxBuyPerTurn）
   roundNumber: number; // 当前回合数（所有人完成一轮 +1）
   roundHistory: RoundRecord[]; // 历史回合记录
+  roundStartSnapshot: PlayerRoundSnapshot[] | null; // 当前回合开始时的玩家快照
 
   // 并购
   activeMergers: MergerEvent[]; // 当前活跃的并购（可能有多个）
@@ -165,8 +201,9 @@ export interface GameState {
 export interface PlayerRoundSnapshot {
   playerId: string;
   playerName: string;
-  cash: number; // 回合结束时的现金
-  stocks: StockHolding[]; // 回合结束时的持股
+  cash: number;
+  stocks: StockHolding[];
+  futures: FuturesHolding[];
 }
 
 export interface RoundRecord {
@@ -221,6 +258,13 @@ export interface GameConfig {
 
   // 连胜奖励（进阶模式可选）
   bonusForFoundingHotel: number;
+
+  // 期货模式
+  shopItems: ShopItem[];
+  futuresConfig: FuturesConfig[];
+  futuresNames: Record<string, { name: string; icon: string }>;
+  maxFuturesPerPlayer: number;
+  universalTilePrice: number;
 }
 
 // ---- 分数 ----

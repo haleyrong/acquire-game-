@@ -46,9 +46,10 @@ export function PlayerList({ localPlayerId }: { localPlayerId?: string }) {
                 </div>
               </div>
 
-              {/* 自己的持股明细 */}
+              {/* 自己的持股明细 + 期货 */}
               {isMe && (
                 <div className="mt-2 ml-11 pl-2 border-l-2 border-slate-200 space-y-1">
+                  {/* 股票 */}
                   {player.stocks.filter(s => s.quantity > 0).length > 0 ? (
                     player.stocks.filter(s => s.quantity > 0).map(s => {
                       const hotel = gameState.hotels[s.hotelId];
@@ -64,6 +65,22 @@ export function PlayerList({ localPlayerId }: { localPlayerId?: string }) {
                     })
                   ) : (
                     <span className="text-xs text-slate-400">暂无持股</span>
+                  )}
+                  {/* 期货 */}
+                  {player.futures.filter(f => f.quantity > 0).length > 0 && (
+                    <div className="border-t border-slate-100 pt-1 mt-1">
+                      {player.futures.filter(f => f.quantity > 0).map(f => {
+                        const fc = gameState.config.futuresConfig.find((c) => c.hotelId === f.hotelId);
+                        return (
+                          <div key={f.hotelId} className="flex items-center gap-1.5 text-xs">
+                            <span>{fc?.icon || '?'}</span>
+                            <span className="text-slate-600">{fc?.name || '?'}</span>
+                            <span className="font-mono font-medium text-slate-700 ml-auto">{f.quantity} 张</span>
+                            <span className="text-slate-400">(@${f.purchasePrice.toLocaleString()})</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               )}

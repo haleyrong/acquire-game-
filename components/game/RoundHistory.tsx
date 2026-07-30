@@ -21,6 +21,7 @@ export function RoundHistory() {
           const prevP = prev?.players.find((pp) => pp.playerId === p.playerId);
           const cashDiff = prevP ? p.cash - prevP.cash : 0;
           const prevStocks = prevP?.stocks || [];
+          const prevFutures = (prevP as { futures?: { hotelId: string; quantity: number }[] })?.futures || [];
 
           // 新增的股票
           const gainedStocks = p.stocks
@@ -30,6 +31,15 @@ export function RoundHistory() {
               return { ...s, diff };
             })
             .filter((s) => s.diff !== 0);
+
+          // 新增的期货
+          const gainedFutures = (p.futures || [])
+            .map((f) => {
+              const prevF = prevFutures.find((pf) => pf.hotelId === f.hotelId);
+              const diff = f.quantity - (prevF?.quantity || 0);
+              return { ...f, diff };
+            })
+            .filter((f) => f.diff !== 0);
 
           return (
             <div key={p.playerId} className="p-2 bg-slate-50 rounded-lg">
@@ -46,7 +56,7 @@ export function RoundHistory() {
                     return (
                       <div key={s.hotelId} className="flex items-center gap-1 text-xs text-slate-500 ml-1">
                         {hotel && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hotel.color }} />}
-                        <span>{hotel?.name || '?'}</span>
+                        <span>📈 {hotel?.name || '?'}</span>
                         <span className={`font-mono ml-auto ${s.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                           {s.diff > 0 ? '+' : ''}{s.diff} 股
                         </span>
@@ -55,7 +65,23 @@ export function RoundHistory() {
                   })}
                 </div>
               )}
-              {gainedStocks.length === 0 && cashDiff === 0 && (
+              {gainedFutures.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {gainedFutures.map((f) => {
+                    const fc = gameState.config.futuresConfig.find((c) => c.hotelId === f.hotelId);
+                    return (
+                      <div key={f.hotelId} className="flex items-center gap-1 text-xs text-slate-500 ml-1">
+                        <span>{fc?.icon || '?'}</span>
+                        <span>📊 {fc?.name || '?'}</span>
+                        <span className={`font-mono ml-auto ${f.diff > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {f.diff > 0 ? '+' : ''}{f.diff} 张
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {gainedStocks.length === 0 && gainedFutures.length === 0 && cashDiff === 0 && (
                 <p className="text-xs text-slate-400 ml-1 mt-0.5">无变化</p>
               )}
             </div>

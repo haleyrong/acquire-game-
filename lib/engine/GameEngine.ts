@@ -14,7 +14,7 @@ import type {
   MergerEvent,
   RoundRecord,
 } from './types';
-import { getStockPrice } from '@/lib/config/classic';
+import { getStockPrice, getFuturesPriceMultiplier } from '@/lib/config/classic';
 
 // ---- 工具函数 ----
 
@@ -118,6 +118,9 @@ export function createGame(
       cash: config.startingCash,
       handTileIds: [],
       stocks: [],
+      futures: [],
+      items: [],
+      usedItemThisTurn: false,
       turnOrder: i,
       isConnected: true,
     };
@@ -147,7 +150,7 @@ export function createGame(
 
   const state: GameState = {
     gameId,
-    mode: 'classic',
+    mode: 'classic', // 默认为经典模式，联机时可能覆盖
     status: 'playing',
     config,
     tiles,
@@ -160,6 +163,7 @@ export function createGame(
     stocksBoughtThisTurn: 0,
     roundNumber: 1,
     roundHistory: [],
+    roundStartSnapshot: null,
     activeMergers: [],
     pendingHotelFounding: null,
     pendingAcquirerChoice: null,
@@ -262,7 +266,7 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
     } else {
       // 不满足任何酒店的最低建立条件，无事发生
       event = 'none';
-      gotoBuyOrSkip(state);
+      gotoUseItemOrBuy(state);
       if (totalOrphanCount > 1) {
         addLog(state, '', 'INFO',
           `${totalOrphanCount} 块独立板块相连，但没有酒店满足最低建立条件`);
@@ -274,12 +278,13 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
       // 只相邻一家酒店 → 扩张
       event = 'expand_hotel';
       affectedHotelId = adjacentHotels[0];
+
+      // 先吸收孤儿（此时 tile 还未归属酒店，BFS 能搜到整条孤儿链）
+      absorbAdjacentOrphans(state, tile, affectedHotelId);
+      // 再把当前板块加入酒店
       addTileToHotel(state, tile, affectedHotelId);
 
-      // 同时吸收所有相邻的孤儿板块
-      absorbAdjacentOrphans(state, tile, affectedHotelId);
-
-      gotoBuyOrSkip(state);
+      gotoUseItemOrBuy(state);
     } else {
     // 相邻多家酒店 → 并购！
     event = 'merger';
@@ -298,11 +303,10 @@ export function placeTile(state: GameState, tileId: string): PlaceTileResult {
       const survivor = largest[0];
       affectedHotelId = survivor.id;
 
-      // 新板块加入幸存者
-      addTileToHotel(state, tile, survivor.id);
-
-      // 吸收相邻孤儿板块
+      // 先吸收孤儿链
       absorbAdjacentOrphans(state, tile, survivor.id);
+      // 再把当前板块加入幸存者
+      addTileToHotel(state, tile, survivor.id);
 
       // 所有更小的非安全酒店被并购
       for (const victim of smaller) {
@@ -422,9 +426,11 @@ export function findTileAtPosition(state: GameState, pos: Position): Tile | null
   return null;
 }
 
-/** 吸收与 tile 相邻的所有孤儿板块到酒店 */
+/** 吸收与 tile 相邻的所有孤儿板块到酒店（BFS，吸收整条相连的孤儿链） */
 function absorbAdjacentOrphans(state: GameState, tile: Tile, hotelId: string) {
-  const orphans = findAdjacentOrphanTiles(state, tile);
+  const allOrphans = findAllConnectedOrphanTiles(state, tile);
+  // allOrphans 包含 tile 自身，先排除
+  const orphans = allOrphans.filter((t) => t.id !== tile.id && !t.hotelId);
   for (const orphan of orphans) {
     if (!orphan.hotelId) {
       orphan.hotelId = hotelId;
@@ -439,13 +445,6 @@ function absorbAdjacentOrphans(state: GameState, tile: Tile, hotelId: string) {
     addLog(state, '', 'ABSORB',
       `${state.hotels[hotelId].name} 吸收了 ${orphans.length} 块独立板块`);
   }
-}
-
-/** 找到与某板块直接相邻的孤儿板块（不递归） */
-function findAdjacentOrphanTiles(state: GameState, tile: Tile): Tile[] {
-  return getAdjacentPositions(tile.position)
-    .map((pos) => findTileAtPosition(state, pos))
-    .filter((t): t is Tile => t !== null && t.placed && !t.hotelId);
 }
 
 /** 将板块加入酒店 */
@@ -499,7 +498,7 @@ function advanceAfterMerger(state: GameState) {
   if (state.activeMergers.length > 0) {
     state.phase = 'merger_decisions';
   } else {
-    gotoBuyOrSkip(state);
+    gotoUseItemOrBuy(state);
   }
 }
 
@@ -518,11 +517,10 @@ export function chooseAcquirer(state: GameState, chosenSurvivorId: string): bool
 
   const tile = state.tiles[pending.placedTileId];
 
-  // 新板块加入幸存者
-  addTileToHotel(state, tile, chosenSurvivorId);
-
-  // 吸收相邻孤儿板块
+  // 先吸收孤儿链（此时 tile 还未归属，BFS 能搜到整条孤儿链）
   absorbAdjacentOrphans(state, tile, chosenSurvivorId);
+  // 再把自己加入幸存者
+  addTileToHotel(state, tile, chosenSurvivorId);
 
   // 同级所有其他非安全酒店被并购
   for (const victimId of otherTies) {
@@ -827,9 +825,15 @@ function finalizeMerger(state: GameState, merger: MergerEvent) {
   }
 
   // 注销 victim，重置并加回可激活列表
+  // 计算玩家手中还持有的旧股票（hold = 死股）
+  let heldDead = 0;
+  for (const pid of state.playerOrder) {
+    const h = state.players[pid].stocks.find((s) => s.hotelId === victim.id);
+    heldDead += h?.quantity || 0;
+  }
   victim.isActive = false;
   victim.size = 0;
-  victim.remainingStocks = state.config.stocksPerHotel;
+  victim.remainingStocks = Math.max(0, state.config.stocksPerHotel - heldDead);
   victim.isSafe = false;
   state.inactiveHotels.push(victim.id);
 
@@ -887,8 +891,28 @@ export function foundHotel(state: GameState, hotelId: string): boolean {
 
   hotel.stockPrice = getStockPrice(hotel.tier, hotel.size);
 
+  // 重新计算可用股票池：总数 - 玩家手中已有（含死股）= 剩余可购
+  let alreadyHeld = 0;
+  for (const pid of state.playerOrder) {
+    const h = state.players[pid].stocks.find((s) => s.hotelId === hotelId);
+    alreadyHeld += h?.quantity || 0;
+  }
+  const totalPool = state.config.stocksPerHotel;
+  // 确保 remainingStocks + alreadyHeld + 即将发放的 1 股 ≤ totalPool
+  hotel.remainingStocks = Math.max(0, totalPool - alreadyHeld);
+
   // 给建立者免费发一张股票
-  grantStock(state, currentPlayer.id, hotelId, 1);
+  if (hotel.remainingStocks >= 1) {
+    grantStock(state, currentPlayer.id, hotelId, 1);
+  } else {
+    // 极端情况：股票池已空，强制发放（无库存）
+    addLog(state, currentPlayer.id, 'WARNING',
+      `${hotel.name} 股票已无库存，无法获得免费股票`);
+    // 手动给，不扣库存
+    const existing = currentPlayer.stocks.find((s) => s.hotelId === hotelId);
+    if (existing) { existing.quantity += 1; }
+    else { currentPlayer.stocks.push({ hotelId, quantity: 1 }); }
+  }
 
   addLog(
     state,
@@ -982,16 +1006,26 @@ export function buyStock(
   return { success: true };
 }
 
-/** 完成股票购买阶段 → 补牌 → 结束回合 */
+/** 完成股票购买阶段 → (期货模式: 进入商店) → 补牌 → 结束回合 */
 export function completeStockBuying(state: GameState): string | null {
   const player = getCurrentPlayer(state);
 
-  // 补牌
+  // 期货模式：进入商店阶段
+  if (state.mode === 'futures') {
+    state.phase = 'shop';
+    return null;
+  }
+
+  // 经典模式：直接补牌换人
   const drawnId = drawTile(state);
-
-  // 下一位玩家
   nextTurn(state);
+  return drawnId;
+}
 
+/** 跳过商店 → 补牌 → 结束回合 */
+export function skipShop(state: GameState): string | null {
+  const drawnId = drawTile(state);
+  nextTurn(state);
   return drawnId;
 }
 
@@ -1022,10 +1056,56 @@ function gotoBuyOrSkip(state: GameState) {
     state.phase = 'buy_stocks';
     state.stocksBoughtThisTurn = 0;
   } else {
-    // 无已激活企业，自动补牌跳回合
     drawTile(state);
     nextTurn(state);
   }
+}
+
+/** 放置板块后 → 检查是否有道具可用 → 使用道具或跳过 */
+function gotoUseItemOrBuy(state: GameState) {
+  const player = getCurrentPlayer(state);
+  const hasItems = player.items.some((it) => it.quantity > 0);
+  if (hasItems && !player.usedItemThisTurn) {
+    state.phase = 'use_item';
+  } else {
+    gotoBuyOrSkip(state);
+  }
+}
+
+/** 跳过使用道具 */
+export function skipUseItem(state: GameState) {
+  gotoBuyOrSkip(state);
+}
+
+/** 使用万能板块：选一块未放置的板块放到任意空位 */
+export function useUniversalTile(state: GameState, tileId: string): PlaceTileResult {
+  const player = getCurrentPlayer(state);
+  const item = player.items.find((it) => it.type === 'universal_tile');
+  if (!item || item.quantity <= 0) {
+    return { success: false, error: '没有万能板块', event: 'none', adjacentHotels: [] };
+  }
+  if (player.usedItemThisTurn) {
+    return { success: false, error: '本回合已使用过道具', event: 'none', adjacentHotels: [] };
+  }
+  const tile = state.tiles[tileId];
+  if (!tile) return { success: false, error: '板块不存在', event: 'none', adjacentHotels: [] };
+  if (tile.placed) return { success: false, error: '该位置已有板块', event: 'none', adjacentHotels: [] };
+
+  // 消耗道具
+  item.quantity--;
+  if (item.quantity <= 0) {
+    player.items = player.items.filter((it) => it.type !== 'universal_tile');
+  }
+  player.usedItemThisTurn = true;
+
+  // 把板块临时加入手牌再放置（走正常 placeTile 流程）
+  player.handTileIds.push(tileId);
+  const result = placeTile(state, tileId);
+
+  addLog(state, player.id, 'USE_ITEM',
+    `${player.name} 使用了万能板块，放置在 ${tile.label}`);
+
+  return result;
 }
 
 // ---- 回合管理 ----
@@ -1039,6 +1119,17 @@ export function getCurrentPlayer(state: GameState): Player {
 export function nextTurn(state: GameState) {
   const newIndex = (state.currentPlayerIndex + 1) % state.playerOrder.length;
 
+  // 新回合开始时记录快照
+  if (state.roundStartSnapshot === null) {
+    state.roundStartSnapshot = state.playerOrder.map((pid) => ({
+      playerId: pid,
+      playerName: state.players[pid].name,
+      cash: state.players[pid].cash,
+      stocks: state.players[pid].stocks.map((s) => ({ ...s })),
+      futures: state.players[pid].futures.map((f) => ({ ...f })),
+    }));
+  }
+
   // 如果绕回了第0个玩家，说明一轮完成了
   if (newIndex === 0 && state.currentPlayerIndex !== 0) {
     // 记录当前回合快照
@@ -1049,16 +1140,26 @@ export function nextTurn(state: GameState) {
         playerName: state.players[pid].name,
         cash: state.players[pid].cash,
         stocks: state.players[pid].stocks.map((s) => ({ ...s })),
+        futures: state.players[pid].futures.map((f) => ({ ...f })),
       })),
     };
     state.roundHistory.push(snapshot);
     state.roundNumber++;
+    // 新一轮开始，记录起始快照
+    state.roundStartSnapshot = state.playerOrder.map((pid) => ({
+      playerId: pid,
+      playerName: state.players[pid].name,
+      cash: state.players[pid].cash,
+      stocks: state.players[pid].stocks.map((s) => ({ ...s })),
+      futures: state.players[pid].futures.map((f) => ({ ...f })),
+    }));
   }
 
   state.currentPlayerIndex = newIndex;
   const player = getCurrentPlayer(state);
   state.phase = 'place_tile';
   state.stocksBoughtThisTurn = 0;
+  player.usedItemThisTurn = false;
 
   addLog(state, player.id, 'TURN', `${player.name} 的回合`);
 }
@@ -1143,22 +1244,150 @@ export function calculateFinalScores(state: GameState) {
   }
 
   // 所有股票按市价兑现，加现金
-  return state.playerOrder.map((playerId, index) => {
-    const player = state.players[playerId];
+  return state.playerOrder.map((pid) => {
+    const player = state.players[pid];
     let stockValue = 0;
     for (const holding of player.stocks) {
-      const hotel = state.hotels[holding.hotelId];
-      if (hotel && hotel.isActive) {
-        stockValue += hotel.stockPrice * holding.quantity;
-      }
+      const h = state.hotels[holding.hotelId];
+      if (h && h.isActive) stockValue += h.stockPrice * holding.quantity;
+    }
+    let futuresValue = 0;
+    for (const f of player.futures) {
+      const h = state.hotels[f.hotelId];
+      futuresValue += (h && h.isActive) ? h.stockPrice * f.quantity : f.purchasePrice * f.quantity;
     }
     return {
-      playerId,
+      playerId: pid,
       playerName: player.name,
       cash: player.cash,
-      stockValue,
-      totalWealth: player.cash + stockValue,
+      stockValue: stockValue + futuresValue,
+      totalWealth: player.cash + stockValue + futuresValue,
       rank: 0,
     };
   });
+}
+
+// ---- 商店 & 期货 ----
+
+/** 获取期货当前价格（按企业规模乘数） */
+export function getFuturesPrice(state: GameState, hotelId: string): number {
+  const hotel = state.hotels[hotelId];
+  const config = state.config.futuresConfig;
+  if (!config) return 0;
+  const fc = config.find((f) => f.hotelId === hotelId);
+  if (!fc) return 0;
+  const size = hotel?.isActive ? hotel.size : 0;
+  const mult = getFuturesPriceMultiplier(size, hotel?.tier || 'economy');
+  return Math.floor(fc.basePrice * mult);
+}
+
+/** 获取商店物品列表 */
+export function getAvailableShopItems(state: GameState) {
+  const player = getCurrentPlayer(state);
+  const items = [];
+
+  // 万能板块
+  items.push({
+    ...state.config.shopItems[0],
+    canAfford: player.cash >= state.config.universalTilePrice,
+  });
+
+  return items;
+}
+
+/** 购买万能板块 */
+export function buyUniversalTile(state: GameState): { success: boolean; error?: string } {
+  const player = getCurrentPlayer(state);
+  const price = state.config.universalTilePrice;
+  if (player.cash < price) return { success: false, error: '现金不足' };
+
+  player.cash -= price;
+
+  // 存入道具栏
+  const existing = player.items.find((it) => it.type === 'universal_tile');
+  if (existing) {
+    existing.quantity++;
+  } else {
+    player.items.push({ type: 'universal_tile', quantity: 1 });
+  }
+
+  addLog(state, player.id, 'SHOP', `${player.name} 购买了万能板块 $${price.toLocaleString()}`);
+  return { success: true };
+}
+
+/** 买入期货 */
+export function buyFutures(
+  state: GameState,
+  hotelId: string,
+  quantity: number
+): { success: boolean; error?: string } {
+  const player = getCurrentPlayer(state);
+  const price = getFuturesPrice(state, hotelId);
+  if (price <= 0) return { success: false, error: '期货不可用' };
+
+  const totalCost = price * quantity;
+  if (player.cash < totalCost) return { success: false, error: `现金不足，需要 $${totalCost.toLocaleString()}` };
+
+  const maxFutures = state.config.maxFuturesPerPlayer;
+  const existing = player.futures.find((f) => f.hotelId === hotelId);
+  const currentQty = existing?.quantity || 0;
+  if (currentQty + quantity > maxFutures) {
+    return { success: false, error: `该期货最多持有 ${maxFutures} 张` };
+  }
+
+  player.cash -= totalCost;
+  if (existing) {
+    // 加权平均价格
+    const totalValue = existing.purchasePrice * existing.quantity + price * quantity;
+    existing.quantity += quantity;
+    existing.purchasePrice = Math.floor(totalValue / existing.quantity);
+  } else {
+    player.futures.push({ hotelId, quantity, purchasePrice: price });
+  }
+
+  const hotel = state.hotels[hotelId];
+  addLog(state, player.id, 'SHOP',
+    `${player.name} 买入 ${quantity} 张${hotel?.name || '?'}期货，单价 $${price.toLocaleString()}`);
+  return { success: true };
+}
+
+/** 卖出期货 */
+export function sellFutures(
+  state: GameState,
+  hotelId: string,
+  quantity: number
+): { success: boolean; error?: string } {
+  const player = getCurrentPlayer(state);
+  const existing = player.futures.find((f) => f.hotelId === hotelId);
+  if (!existing || existing.quantity < quantity) {
+    return { success: false, error: '持有量不足' };
+  }
+
+  const price = getFuturesPrice(state, hotelId);
+  const cashOut = price * quantity;
+  player.cash += cashOut;
+  existing.quantity -= quantity;
+  if (existing.quantity <= 0) {
+    player.futures = player.futures.filter((f) => f.hotelId !== hotelId);
+  }
+
+  const hotel = state.hotels[hotelId];
+  addLog(state, player.id, 'SHOP',
+    `${player.name} 卖出 ${quantity} 张${hotel?.name || '?'}期货，单价 $${price.toLocaleString()}`);
+  return { success: true };
+}
+
+/** 初始化期货配置（按酒店名匹配，根据档位定价） */
+export function initFuturesConfig(state: GameState) {
+  const hotels = state.config.hotels;
+  const futuresConfig: { hotelId: string; basePrice: number; name: string; icon: string }[] = [];
+  for (const hc of hotels) {
+    const hotel = Object.values(state.hotels).find((h) => h.name === hc.name);
+    const futuresInfo = state.config.futuresNames[hc.name] || { name: hc.name, icon: '?' };
+    const basePrice = hc.tier === 'luxury' ? 500 : hc.tier === 'standard' ? 200 : 100;
+    if (hotel) {
+      futuresConfig.push({ hotelId: hotel.id, basePrice, name: futuresInfo.name, icon: futuresInfo.icon });
+    }
+  }
+  state.config.futuresConfig = futuresConfig;
 }

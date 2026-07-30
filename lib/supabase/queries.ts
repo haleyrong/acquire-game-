@@ -13,7 +13,8 @@ function generateCode(): string {
 }
 
 export async function createOnlineGame(
-  playerName: string
+  playerName: string,
+  mode: string = 'classic'
 ): Promise<{ code: string; gameId: string; playerId: string } | null> {
   const code = generateCode();
 
@@ -22,7 +23,7 @@ export async function createOnlineGame(
     .insert({
       code,
       status: 'waiting',
-      mode: 'classic',
+      mode,
       config: classicConfig,
       current_phase: 'place_tile',
       current_player_index: 0,

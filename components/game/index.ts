@@ -11,4 +11,7 @@ export { AcquirerChoiceModal } from './AcquirerChoiceModal';
 export { MergerModal } from './MergerModal';
 export { DevTilePicker } from './DevTilePicker';
 export { RoundHistory } from './RoundHistory';
+export { ThisRoundPanel } from './ThisRoundPanel';
 export { BuyStockModal } from './BuyStockModal';
+export { ShopModal } from './ShopModal';
+export { UseItemModal } from './UseItemModal';

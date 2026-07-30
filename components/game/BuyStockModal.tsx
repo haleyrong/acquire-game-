@@ -158,7 +158,9 @@ export function BuyStockModal({ isMyTurn }: { isMyTurn: boolean }) {
           <div className="flex gap-2">
             <button onClick={handleFinish}
               className="w-full py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 active:scale-[0.98] transition-all shadow-sm">
-              ✅ {boughtThisTurn > 0 ? `完成购买 (${boughtThisTurn}张)` : '跳过购买'} · 结束回合
+              ✅ {boughtThisTurn > 0 ? `完成购买 (${boughtThisTurn}张)` : '跳过购买'}
+              {gameState.mode !== 'futures' && ' · 结束回合'}
+              {gameState.mode === 'futures' && ' → 进入商店'}
             </button>
           </div>
         )}
@@ -171,6 +173,7 @@ export function BuyStockModal({ isMyTurn }: { isMyTurn: boolean }) {
 
         <p className="text-xs text-slate-400 text-center mt-3">
           {isMyTurn ? `持有现金: $${player.cash.toLocaleString()}` : '对方购买完成后将自动更新'}
+          {gameState.mode === 'futures' && isMyTurn && ' · 期货模式下请在商店中结束回合'}
         </p>
       </div>
     </div>

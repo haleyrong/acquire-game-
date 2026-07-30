@@ -8,6 +8,7 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
   const gameState = useGameStore((s) => s.gameState);
   const selectedTileId = useGameStore((s) => s.selectedTileId);
   const devMode = useGameStore((s) => s.devMode);
+  const placingUniversalTile = useGameStore((s) => s.placingUniversalTile);
   const selectTile = useGameStore((s) => s.selectTile);
   const confirmPlaceTile = useGameStore((s) => s.confirmPlaceTile);
 
@@ -16,7 +17,8 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
   // 只显示本地玩家的手牌，不显示别人的
   const player = localPlayerId ? gameState.players[localPlayerId] : getCurrentPlayer(gameState);
   if (!player) return null;
-  const isMyTurn = (!readOnly && gameState.phase === 'place_tile') || devMode;
+  const isMyTurn = (!readOnly && (gameState.phase === 'place_tile' || gameState.phase === 'use_item')) || devMode;
+  const isUniversalMode = placingUniversalTile && gameState.phase === 'use_item';
   const isChoosingHotel = gameState.phase === 'choose_hotel';
 
   // 计算需要高亮的 pending 板块
@@ -54,9 +56,10 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
         (t) => t.position.row === row && t.position.col === col
       );
       if (tile) {
+        const isUniversalTarget = isUniversalMode && !tile.placed;
         const inHand = devMode
-          ? !tile.placed // dev模式：所有未放置板块都算"在手"
-          : player.handTileIds.includes(tile.id);
+          ? !tile.placed
+          : isUniversalTarget || player.handTileIds.includes(tile.id);
 
         cells.push(
           <BoardTile
@@ -67,6 +70,7 @@ export function GameBoard({ readOnly = false, localPlayerId }: { readOnly?: bool
             isSelected={selectedTileId === tile.id}
             isPending={isChoosingHotel && pendingTileIds.has(tile.id)}
             isDeadZone={deadZoneTileIds.has(tile.id)}
+            isUniversalTarget={isUniversalTarget}
             isMyTurn={isMyTurn}
             devMode={devMode}
             onSelect={() => selectTile(tile.id)}

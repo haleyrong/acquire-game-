@@ -9,6 +9,7 @@ interface BoardTileProps {
   isSelected: boolean;
   isPending: boolean;
   isDeadZone: boolean;
+  isUniversalTarget: boolean;
   isMyTurn: boolean;
   devMode?: boolean;
   onSelect: () => void;
@@ -22,6 +23,7 @@ export function BoardTile({
   isSelected,
   isPending,
   isDeadZone,
+  isUniversalTarget,
   isMyTurn,
   devMode,
   onSelect,
@@ -32,7 +34,11 @@ export function BoardTile({
   let hoverClass = '';
   let cursorClass = 'cursor-default';
 
-  if (isDeadZone && !tile.placed) {
+  if (isUniversalTarget && !tile.placed) {
+    bgClass = 'bg-amber-100 border-amber-500 border-2 animate-pulse';
+    hoverClass = 'hover:bg-amber-200 hover:scale-110';
+    cursorClass = 'cursor-pointer';
+  } else if (isDeadZone && !tile.placed) {
     bgClass = 'bg-red-950/60 border-red-800';
     cursorClass = 'cursor-not-allowed';
   } else if (tile.placed && hotel) {
