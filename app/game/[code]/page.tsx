@@ -37,12 +37,17 @@ export default function GameRoomPage() {
   // === 保存快照 ===
   const saveSnapshot = useCallback(async () => {
     const s = useGameStore.getState().gameState;
-    if (!s || !gameIdRef.current) return;
+    if (!s || !gameIdRef.current) { console.warn('saveSnapshot: 无状态或无gameId'); return; }
     const newVer = localSnapshotVer.current + 1;
     localSnapshotVer.current = newVer;
     const snap = JSON.parse(JSON.stringify(s));
     snap._ver = newVer;
-    await supabase.from('games').update({ state_snapshot: snap }).eq('id', gameIdRef.current);
+    const { error } = await supabase.from('games').update({ state_snapshot: snap }).eq('id', gameIdRef.current);
+    if (error) {
+      console.error('saveSnapshot 写入失败:', error.message, error.code);
+    } else {
+      console.log(`saveSnapshot: ver=${newVer} phase=${snap.phase} player=${snap.currentPlayerIndex} 写入成功`);
+    }
   }, []);
 
   // === 加载房间 ===
@@ -99,19 +104,26 @@ export default function GameRoomPage() {
   // === 轮询快照（纯快照，不重放） ===
   useEffect(() => {
     if (status !== 'playing') return;
+    let pollCount = 0;
     const i = setInterval(async () => {
       try {
-        const { data: g } = await supabase.from('games')
+        pollCount++;
+        const { data: g, error } = await supabase.from('games')
           .select('state_snapshot').eq('id', gameIdRef.current).single();
-        if (!g?.state_snapshot) return;
+        if (error) { console.warn('轮询读失败:', error.message); return; }
+        if (!g?.state_snapshot) {
+          if (pollCount <= 4) console.warn('轮询: state_snapshot 为空');
+          return;
+        }
         const snap = g.state_snapshot as Record<string, unknown>;
         const remoteVer = (snap._ver as number) || 0;
         if (remoteVer > localSnapshotVer.current) {
+          console.log(`轮询: 检测到新版本 ver=${remoteVer} (本地=${localSnapshotVer.current})，加载中...`);
           loadSnapshot(snap, remoteVer);
+          console.log('轮询: 快照加载完成');
         }
       } catch (e) {
-        // Supabase 暂停等情况，轮询不中断，下一轮自动恢复
-        console.warn('轮询失败，下一轮重试:', e);
+        console.warn('轮询异常:', e);
       }
     }, 1500);
     return () => clearInterval(i);
