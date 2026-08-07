@@ -96,8 +96,9 @@ export default function GameRoomPage() {
   // === 每步操作后自动存快照 ===
   useEffect(() => {
     if (status !== 'playing') return;
-    useGameStore.getState().setRemoteHandler(async (_action, _payload, playerId) => {
-      if (playerId !== pid) return;
+    debugLog(`安装 remoteHandler, pid=${pid}`);
+    useGameStore.getState().setRemoteHandler(async (action, payload, playerId) => {
+      debugLog(`remoteHandler触发: action=${action} playerId=${playerId} pidCheck=${playerId === pid}`);
       await saveSnapshot();
     });
   }, [status, pid, saveSnapshot]);
