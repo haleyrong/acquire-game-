@@ -71,16 +71,18 @@ export default function GameRoomPage() {
   useEffect(() => {
     if (status !== 'waiting') return;
     const i = setInterval(async () => {
-      const { data: g } = await supabase.from('games')
-        .select('status,state_snapshot').eq('id', gameIdRef.current).maybeSingle();
-      const { data: pl } = await supabase.from('players')
-        .select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
-      if (pl) setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
-      if (g?.status === 'playing' && g.state_snapshot && pl?.length) {
-        const snap = g.state_snapshot as Record<string, unknown>;
-        loadSnapshot(snap, (snap._ver as number) || 0);
-        setStatus('playing');
-      }
+      try {
+        const { data: g } = await supabase.from('games')
+          .select('status,state_snapshot').eq('id', gameIdRef.current).maybeSingle();
+        const { data: pl } = await supabase.from('players')
+          .select('id,display_name').eq('game_id', gameIdRef.current).order('turn_order');
+        if (pl) setPlayers(pl.map(p => ({ id: p.id, name: p.display_name })));
+        if (g?.status === 'playing' && g.state_snapshot && pl?.length) {
+          const snap = g.state_snapshot as Record<string, unknown>;
+          loadSnapshot(snap, (snap._ver as number) || 0);
+          setStatus('playing');
+        }
+      } catch {} // eslint-disable-line
     }, 2000);
     return () => clearInterval(i);
   }, [status, loadSnapshot]);
@@ -98,13 +100,18 @@ export default function GameRoomPage() {
   useEffect(() => {
     if (status !== 'playing') return;
     const i = setInterval(async () => {
-      const { data: g } = await supabase.from('games')
-        .select('state_snapshot').eq('id', gameIdRef.current).single();
-      if (!g?.state_snapshot) return;
-      const snap = g.state_snapshot as Record<string, unknown>;
-      const remoteVer = (snap._ver as number) || 0;
-      if (remoteVer > localSnapshotVer.current) {
-        loadSnapshot(snap, remoteVer);
+      try {
+        const { data: g } = await supabase.from('games')
+          .select('state_snapshot').eq('id', gameIdRef.current).single();
+        if (!g?.state_snapshot) return;
+        const snap = g.state_snapshot as Record<string, unknown>;
+        const remoteVer = (snap._ver as number) || 0;
+        if (remoteVer > localSnapshotVer.current) {
+          loadSnapshot(snap, remoteVer);
+        }
+      } catch (e) {
+        // Supabase 暂停等情况，轮询不中断，下一轮自动恢复
+        console.warn('轮询失败，下一轮重试:', e);
       }
     }, 1500);
     return () => clearInterval(i);
