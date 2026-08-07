@@ -4,6 +4,7 @@
 
 import { create } from 'zustand';
 import type { GameState, Tile } from '@/lib/engine/types';
+import { debugLog } from '@/components/game/DebugLog';
 import {
   createGame,
   placeTile,
@@ -85,7 +86,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   placingUniversalTile: false,
   remoteHandler: null,
 
-  setRemoteHandler: (h) => set({ remoteHandler: h }),
+  setRemoteHandler: (h) => {
+    debugLog('✅ remoteHandler 已安装');
+    set({ remoteHandler: h });
+  },
 
   initGame: (playerNames: string[], mode?: string) => {
     const state = createGame('local-game', classicConfig, playerNames);
@@ -145,7 +149,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { gameState, selectedTileId, devMode, remoteHandler, placingUniversalTile } = get();
     if (!gameState || !selectedTileId) return null;
 
-    // 万能板块模式：点击棋盘空位就是放置位置
+    debugLog(`confirmPlaceTile 被调用, phase=${gameState.phase}, remoteHandler=${!!remoteHandler}`);
+
+    // 万能板块模式
     if (placingUniversalTile && gameState.phase === 'use_item') {
       const result = useUniversalTile(gameState, selectedTileId);
       if (!result.success) { set({ message: result.error || '使用失败', placingUniversalTile: false }); return null; }
