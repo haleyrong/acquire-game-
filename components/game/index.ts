@@ -15,3 +15,4 @@ export { ThisRoundPanel } from './ThisRoundPanel';
 export { BuyStockModal } from './BuyStockModal';
 export { ShopModal } from './ShopModal';
 export { UseItemModal } from './UseItemModal';
+export { DebugLogPanel } from './DebugLog';

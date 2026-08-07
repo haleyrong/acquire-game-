@@ -18,6 +18,7 @@ import {
   BuyStockModal,
   ShopModal,
   UseItemModal,
+  DebugLogPanel,
 } from '@/components/game';
 
 export default function Home() {
@@ -229,6 +230,7 @@ export default function Home() {
           <HotelPanel />
         </div>
       </main>
+      <DebugLogPanel />
     </div>
   );
 }

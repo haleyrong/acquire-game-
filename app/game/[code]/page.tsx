@@ -4,11 +4,12 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useGameStore } from '@/store/gameStore';
 import { supabase } from '@/lib/supabase/client';
+import { debugLog } from '@/components/game/DebugLog';
 import * as Engine from '@/lib/engine/GameEngine';
 import {
   GameBoard, PlayerHand, PlayerList, HotelPanel, RoundHistory, ThisRoundPanel,
   ActionPanel, HotelChoiceModal, AcquirerChoiceModal,
-  MergerModal, DevTilePicker, BuyStockModal, ShopModal, UseItemModal,
+  MergerModal, DevTilePicker, BuyStockModal, ShopModal, UseItemModal, DebugLogPanel,
 } from '@/components/game';
 
 export default function GameRoomPage() {
@@ -37,16 +38,16 @@ export default function GameRoomPage() {
   // === 保存快照 ===
   const saveSnapshot = useCallback(async () => {
     const s = useGameStore.getState().gameState;
-    if (!s || !gameIdRef.current) { console.warn('saveSnapshot: 无状态或无gameId'); return; }
+    if (!s || !gameIdRef.current) { debugLog('saveSnapshot: 无状态或无gameId', 'warn'); return; }
     const newVer = localSnapshotVer.current + 1;
     localSnapshotVer.current = newVer;
     const snap = JSON.parse(JSON.stringify(s));
     snap._ver = newVer;
     const { error } = await supabase.from('games').update({ state_snapshot: snap }).eq('id', gameIdRef.current);
     if (error) {
-      console.error('saveSnapshot 写入失败:', error.message, error.code);
+      debugLog('saveSnapshot 写入失败: ' + error.message, 'error');
     } else {
-      console.log(`saveSnapshot: ver=${newVer} phase=${snap.phase} player=${snap.currentPlayerIndex} 写入成功`);
+      debugLog(`saveSnapshot: ver=${newVer} phase=${snap.phase} player=${snap.currentPlayerIndex} 写入成功`);
     }
   }, []);
 
@@ -110,20 +111,20 @@ export default function GameRoomPage() {
         pollCount++;
         const { data: g, error } = await supabase.from('games')
           .select('state_snapshot').eq('id', gameIdRef.current).single();
-        if (error) { console.warn('轮询读失败:', error.message); return; }
+        if (error) { debugLog('轮询读失败: ' + error.message, 'warn'); return; }
         if (!g?.state_snapshot) {
-          if (pollCount <= 4) console.warn('轮询: state_snapshot 为空');
+          if (pollCount <= 4) debugLog('轮询: state_snapshot 为空');
           return;
         }
         const snap = g.state_snapshot as Record<string, unknown>;
         const remoteVer = (snap._ver as number) || 0;
         if (remoteVer > localSnapshotVer.current) {
-          console.log(`轮询: 检测到新版本 ver=${remoteVer} (本地=${localSnapshotVer.current})，加载中...`);
+          debugLog(`轮询: 检测到新版本 ver=${remoteVer} (本地=${localSnapshotVer.current})，加载中...`);
           loadSnapshot(snap, remoteVer);
-          console.log('轮询: 快照加载完成');
+          debugLog('轮询: 快照加载完成');
         }
       } catch (e) {
-        console.warn('轮询异常:', e);
+        debugLog('轮询异常: ' + (e as Error).message, 'warn');
       }
     }, 1500);
     return () => clearInterval(i);
@@ -245,6 +246,7 @@ function GameUI({ code, pid }: { code: string; pid: string }) {
         </div>
         <div className="w-full lg:w-96 shrink-0 flex flex-col gap-4"><PlayerList localPlayerId={pid} /><ThisRoundPanel /><RoundHistory /><HotelPanel /></div>
       </main>
+      <DebugLogPanel />
     </div>
   );
 }
